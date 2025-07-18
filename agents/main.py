@@ -105,13 +105,28 @@ class AgentOrchestrator:
             async with self.processing_lock:
                 page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
+                # Mark emails as processed only for successfully created tasks
+                successful_tasks = []
+                for i, (task, page_id) in enumerate(zip(new_tasks, page_ids)):
+                    if page_id is not None:
+                        successful_tasks.append(task)
+                
+                # Mark successful tasks as processed
+                if successful_tasks:
+                    self.email_agent.mark_tasks_as_processed(successful_tasks)
+                
                 # Update stats
-                successful_tasks = len([pid for pid in page_ids if pid is not None])
-                self.stats["tasks_processed"] += successful_tasks
+                successful_count = len(successful_tasks)
+                self.stats["tasks_processed"] += successful_count
                 self.stats["emails_processed"] += len(new_tasks)
                 self.stats["last_run"] = datetime.now()
                 
-                self.logger.info(f"Pipeline complete: {successful_tasks}/{len(new_tasks)} tasks created")
+                self.logger.info(f"Pipeline complete: {successful_count}/{len(new_tasks)} tasks created")
+                
+                # Log failed tasks for debugging
+                failed_count = len(new_tasks) - successful_count
+                if failed_count > 0:
+                    self.logger.warning(f"{failed_count} tasks failed to create in Notion and will be retried")
                 
         except Exception as e:
             self.stats["errors"] += 1

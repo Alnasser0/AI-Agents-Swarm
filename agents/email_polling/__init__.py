@@ -288,9 +288,28 @@ class EmailAgent(BaseAgent):
                 due_date = None
                 if extracted.due_date:
                     try:
+                        # Try standard format first
                         due_date = datetime.strptime(extracted.due_date, '%Y-%m-%d')
                     except ValueError:
-                        self.logger.warning(f"Invalid due date format: {extracted.due_date}")
+                        # Try to parse natural language dates
+                        try:
+                            import dateutil.parser
+                            due_date = dateutil.parser.parse(extracted.due_date)
+                        except Exception:
+                            self.logger.warning(f"Could not parse due date: {extracted.due_date}")
+                            # Store as text in metadata for manual review
+                            due_date = None
+                
+                metadata = {
+                    "sender": email_msg.sender,
+                    "subject": email_msg.subject,
+                    "confidence": extracted.confidence,
+                    "email_date": email_msg.date.isoformat()
+                }
+                
+                # Add raw due date if parsing failed
+                if extracted.due_date and due_date is None:
+                    metadata["raw_due_date"] = extracted.due_date
                 
                 task = Task(
                     title=extracted.title,
@@ -300,12 +319,7 @@ class EmailAgent(BaseAgent):
                     source_id=email_msg.message_id,
                     due_date=due_date,
                     tags=extracted.tags,
-                    metadata={
-                        "sender": email_msg.sender,
-                        "subject": email_msg.subject,
-                        "confidence": extracted.confidence,
-                        "email_date": email_msg.date.isoformat()
-                    }
+                    metadata=metadata
                 )
                 
                 self.log_task_processed(task)
@@ -347,12 +361,17 @@ class EmailAgent(BaseAgent):
                 task = await self.extract_tasks_from_email(email_msg)
                 if task:
                     tasks.append(task)
-                
-                # Mark email as processed
-                self.processed_emails.add(email_msg.message_id)
+                    # DON'T mark as processed yet - let the main pipeline handle this
+                    # after successful Notion creation
+                else:
+                    # If no task was extracted, mark as processed to avoid reprocessing
+                    # non-task emails, but log it for debugging
+                    self.processed_emails.add(email_msg.message_id)
+                    self.logger.debug(f"Email marked as processed (no task found): {email_msg.subject}")
                 
             except Exception as e:
                 self.log_error(e, f"Processing email {email_msg.message_id}")
+                # Don't mark as processed if there was an error - retry later
                 continue
         
         # Save processed emails
@@ -360,6 +379,34 @@ class EmailAgent(BaseAgent):
         
         self.logger.info(f"Processed {len(new_emails)} emails, extracted {len(tasks)} tasks")
         return tasks
+    
+    def mark_task_as_processed(self, task: Task) -> None:
+        """
+        Mark a task's source email as processed.
+        
+        This should be called after successful task creation in external systems.
+        
+        Args:
+            task: Task whose source email should be marked as processed
+        """
+        if task.source_id:
+            self.processed_emails.add(task.source_id)
+            self._save_processed_emails()
+            self.logger.debug(f"Marked email as processed: {task.source_id}")
+    
+    def mark_tasks_as_processed(self, tasks: List[Task]) -> None:
+        """
+        Mark multiple tasks' source emails as processed.
+        
+        Args:
+            tasks: List of tasks whose source emails should be marked as processed
+        """
+        for task in tasks:
+            if task.source_id:
+                self.processed_emails.add(task.source_id)
+        
+        self._save_processed_emails()
+        self.logger.debug(f"Marked {len(tasks)} emails as processed")
     
     def start_polling(self) -> None:
         """Start the email polling loop."""
