@@ -22,7 +22,7 @@ import plotly.graph_objects as go
 
 # Internal imports
 from agents.main import AgentOrchestrator
-from agents.core import Task
+from agents.core import Task, get_available_models, get_best_available_model, validate_model_availability
 from config.settings import settings
 
 
@@ -32,15 +32,62 @@ class Dashboard:
     def __init__(self):
         """Initialize the dashboard."""
         self.orchestrator = None
+        self.selected_model = get_best_available_model()
         self.init_orchestrator()
     
     def init_orchestrator(self):
         """Initialize the agent orchestrator."""
         try:
-            self.orchestrator = AgentOrchestrator()
+            self.orchestrator = AgentOrchestrator(model=self.selected_model)
         except Exception as e:
             st.error(f"Failed to initialize agents: {e}")
             st.stop()
+    
+    def render_model_selector(self):
+        """Render the AI model selector in the sidebar."""
+        st.sidebar.header("🧠 AI Model Selection")
+        
+        available_models = get_available_models()
+        
+        # Flatten model list for selectbox
+        model_options = []
+        for provider, models in available_models.items():
+            for model in models:
+                is_available = validate_model_availability(model)
+                status = "✅" if is_available else "❌"
+                model_options.append(f"{status} {model}")
+        
+        # Find current selection index
+        current_index = 0
+        for i, option in enumerate(model_options):
+            if self.selected_model in option:
+                current_index = i
+                break
+        
+        selected_option = st.sidebar.selectbox(
+            "Choose AI Model",
+            options=model_options,
+            index=current_index,
+            help="Select the AI model to use for task processing"
+        )
+        
+        # Extract model name from formatted option
+        new_model = selected_option.split(" ", 1)[1]  # Remove status emoji
+        
+        # Update model if changed
+        if new_model != self.selected_model:
+            self.selected_model = new_model
+            self.init_orchestrator()  # Reinitialize with new model
+            st.rerun()
+        
+        # Show model status
+        if validate_model_availability(self.selected_model):
+            st.sidebar.success(f"✅ Model ready: {self.selected_model}")
+        else:
+            st.sidebar.error(f"❌ Model not configured: {self.selected_model}")
+            st.sidebar.info("Check your API keys in the .env file")
+        
+        st.sidebar.divider()
     
     def render_header(self):
         """Render the dashboard header."""
@@ -58,6 +105,9 @@ class Dashboard:
     def render_sidebar(self):
         """Render the sidebar with controls."""
         with st.sidebar:
+            # Model selector first
+            self.render_model_selector()
+            
             st.header("🎛️ Control Panel")
             
             # Manual trigger section

@@ -12,6 +12,7 @@ from datetime import datetime
 
 # Internal imports
 from agents.main import AgentOrchestrator
+from agents.core import get_available_models, get_best_available_model, validate_model_availability
 from config.settings import settings
 
 
@@ -25,12 +26,24 @@ def cli():
 @cli.command()
 @click.option("--background", "-b", is_flag=True, help="Run in background mode")
 @click.option("--once", "-o", is_flag=True, help="Run once and exit")
-def run(background: bool, once: bool):
+@click.option("--model", "-m", help="AI model to use (e.g., 'openai:gpt-4o', 'anthropic:claude-3-5-sonnet-latest', 'google-gla:gemini-2.0-flash')")
+def run(background: bool, once: bool, model: Optional[str]):
     """Start the agent system."""
+    
+    # Validate model if specified
+    if model:
+        if not validate_model_availability(model):
+            click.echo(f"⚠️  Warning: Model {model} may not be properly configured")
+            click.echo("Please check your API keys in the .env file")
+    
+    # Use best available model if none specified
+    selected_model = model or get_best_available_model()
+    
     click.echo("🤖 Starting AI Agents Swarm...")
+    click.echo(f"🧠 Using model: {selected_model}")
     
     try:
-        orchestrator = AgentOrchestrator()
+        orchestrator = AgentOrchestrator(model=selected_model)
         
         if once:
             click.echo("Running single cycle...")
@@ -48,6 +61,34 @@ def run(background: bool, once: bool):
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
         raise click.Abort()
+
+
+@cli.command()
+def models():
+    """List available AI models."""
+    click.echo("🧠 Available AI Models:")
+    
+    available_models = get_available_models()
+    best_model = get_best_available_model()
+    
+    for provider, model_list in available_models.items():
+        click.echo(f"\n📚 {provider.title()} Models:")
+        
+        for model in model_list:
+            # Check if model is available
+            is_available = validate_model_availability(model)
+            status = "✅" if is_available else "❌"
+            
+            marker = ""
+            if model == best_model:
+                marker = " (⭐ best available)"
+            elif not is_available:
+                marker = " (check API keys)"
+            
+            click.echo(f"  {status} {model}{marker}")
+    
+    click.echo(f"\n🌟 Best available model: {best_model}")
+    click.echo("\nTo use a specific model, run: python cli.py run --model MODEL_NAME")
 
 
 @cli.command()

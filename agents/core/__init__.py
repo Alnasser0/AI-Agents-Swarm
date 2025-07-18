@@ -97,13 +97,17 @@ class EmailTaskExtractor(BaseModel):
     confidence: float = Field(description="Confidence score (0-1) that this is a task", ge=0, le=1)
 
 
-def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-latest") -> Agent:
+def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-latest") -> Agent[Any, EmailTaskExtractor]:
     """
     Create an AI agent specialized in extracting tasks from text.
     
     This agent is used across different integrations to identify
     and extract task information from various sources.
-    
+    Supports multiple AI providers:
+    - OpenAI
+    - Anthropic
+    - Google Gemini
+
     Args:
         model: AI model to use for task extraction
         
@@ -139,6 +143,78 @@ def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-lates
         Be conservative - only extract tasks you're confident about.
         """
     )
+
+
+def get_available_models() -> Dict[str, List[str]]:
+    """
+    Get a dictionary of available AI models by provider.
+    
+    Returns:
+        Dictionary mapping provider names to lists of model names
+    """
+    return {
+        "openai": [
+            "openai:gpt-4o",
+            "openai:gpt-4o-mini",
+            "openai:gpt-4-turbo",
+            "openai:gpt-3.5-turbo"
+        ],
+        "anthropic": [
+            "anthropic:claude-3-5-sonnet-latest",
+            "anthropic:claude-3-5-haiku-latest",
+            "anthropic:claude-3-opus-latest"
+        ],
+        "google": [
+            "google:gemini-2.5-pro",
+            "google:models/gemini-2.5-flash",
+            "google:models/gemini-2.0-flash",
+            "google:models/gemini-2.0-flash-lite",
+        ]
+    }
+
+
+def validate_model_availability(model: str) -> bool:
+    """
+    Validate if a model is available and properly configured.
+    
+    Args:
+        model: Model identifier (e.g., "openai:gpt-4o")
+        
+    Returns:
+        True if model is available and configured
+    """
+    from config.settings import settings
+    
+    # Check if required API keys are configured
+    if model.startswith("openai:"):
+        return bool(settings.openai_api_key)
+    elif model.startswith("anthropic:"):
+        return bool(settings.anthropic_api_key)
+    elif model.startswith("google:"):
+        return bool(settings.gemini_api_key)
+    
+    return False
+
+
+def get_best_available_model() -> str:
+    """
+    Get the best available AI model based on configured API keys.
+    
+    Returns:
+        Best available model identifier
+    """
+    from config.settings import settings
+    
+    # Priority order: Anthropic > Google Gemini > OpenAI
+    if settings.anthropic_api_key:
+        return "anthropic:claude-3-5-sonnet-latest"
+    elif settings.gemini_api_key:
+        return "google:models/gemini-2.0-flash-lite"
+    elif settings.openai_api_key:
+        return "openai:gpt-4o"
+    
+    # Fallback to default (may fail if no keys configured)
+    return settings.default_model
 
 
 # Global task extraction agent instance

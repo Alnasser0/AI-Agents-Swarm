@@ -12,13 +12,13 @@ for the application. It handles:
 import asyncio
 import schedule
 import time
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
 # Internal imports
-from agents.core import Task
+from agents.core import Task, get_best_available_model, validate_model_availability
 from agents.email_polling import EmailAgent
 from agents.notion_integration import NotionAgent
 from config.settings import settings
@@ -32,10 +32,19 @@ class AgentOrchestrator:
     their activities to create a seamless automation system.
     """
     
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
         """Initialize the orchestrator with all agents."""
         self.logger = logger.bind(component="orchestrator")
         self.logger.info("Initializing Agent Orchestrator")
+        
+        # Select the best available model if none specified
+        self.model = model or get_best_available_model()
+        
+        # Validate model availability
+        if not validate_model_availability(self.model):
+            self.logger.warning(f"Model {self.model} may not be properly configured")
+            
+        self.logger.info(f"Using AI model: {self.model}")
         
         # Initialize agents
         try:

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # AI Model Settings
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
+    gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
     default_model: str = Field(default="anthropic:claude-3-5-sonnet-latest", description="Default AI model")
     
     # Application Settings

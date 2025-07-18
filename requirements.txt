@@ -1,9 +1,10 @@
 # Core AI Libraries
-pydantic-ai==0.0.14
-langgraph==0.5.4
-langchain==0.3.9
-langchain-openai==0.2.8
-langchain-anthropic==0.2.4
+pydantic-ai
+google-genai
+langgraph
+langchain
+langchain-openai
+langchain-anthropic
 
 # Web Framework & UI
 fastapi==0.115.5
