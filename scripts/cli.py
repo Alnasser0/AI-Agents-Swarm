@@ -7,8 +7,15 @@ and interacting with the agent system.
 
 import click
 import asyncio
+import sys
+import os
 from typing import Optional
 from datetime import datetime
+from pathlib import Path
+
+# Add the project root to the path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 # Internal imports
 from agents.main import AgentOrchestrator
@@ -88,7 +95,7 @@ def models():
             click.echo(f"  {status} {model}{marker}")
     
     click.echo(f"\n🌟 Best available model: {best_model}")
-    click.echo("\nTo use a specific model, run: python cli.py run --model MODEL_NAME")
+    click.echo("\nTo use a specific model, run: python scripts/cli.py run --model MODEL_NAME")
 
 
 @cli.command()
@@ -214,7 +221,7 @@ def dashboard():
     try:
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", 
-            "ui/dashboard.py",
+            str(project_root / "ui" / "dashboard.py"),
             "--server.port", str(settings.dashboard_port),
             "--server.address", settings.dashboard_host
         ])
@@ -244,10 +251,9 @@ def logs():
     click.echo("📜 Recent logs:")
     
     try:
-        import os
-        log_file = "logs/agents.log"
+        log_file = project_root / "logs" / "agents.log"
         
-        if os.path.exists(log_file):
+        if log_file.exists():
             with open(log_file, 'r') as f:
                 lines = f.readlines()
                 # Show last 20 lines

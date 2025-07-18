@@ -1,104 +1,15 @@
+````markdown
 # 🤖 AI Agents Swarm
 
-> **Modular AI automation system for business tasks**
+> **Modular AI automation system for solo developers**
 
-Automate email processing, task creation, and workflow management with AI agents.
-
-## 🚀 Quick Start
-
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Set up environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-
-3. **Run the system**:
-   ```bash
-   # CLI interface
-   python scripts/cli.py run
-   
-   # Web dashboard
-   python scripts/cli.py dashboard
-   
-   # Test the system
-   python scripts/troubleshoot.py
-   ```
+A production-ready automation system that automates repetitive business tasks using AI agents. Built with modularity and extensibility in mind.
 
 ## ✨ Features
 
-- **📧 Email-to-Notion**: Automatically create tasks from emails
-- **🤖 Multi-AI Support**: OpenAI, Anthropic Claude, Google Gemini
-- **🎨 Web Dashboard**: Beautiful Streamlit interface
-- **⚙️ CLI Tools**: Command-line management and debugging
-- **🔧 Extensible**: Easy to add new agents and integrations
-
-## 📁 Project Structure
-
-```
-AI-Agents-Swarm/
-├── agents/         # Core agent functionality
-├── scripts/        # CLI tools and utilities
-├── ui/            # Web dashboard
-├── docs/          # Documentation
-├── config/        # Configuration
-├── api/           # REST API
-└── tests/         # Test suites
-```
-
-## 🔧 Configuration
-
-Required environment variables in `.env`:
-
-```bash
-# AI Model (choose one)
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-GOOGLE_API_KEY=your-gemini-key
-
-# Email (Gmail recommended)
-EMAIL_ADDRESS=your-email@gmail.com
-EMAIL_PASSWORD=your-gmail-app-password
-
-# Notion
-NOTION_TOKEN=your-notion-integration-token
-NOTION_DATABASE_ID=your-database-id
-```
-
-## 📚 Documentation
-
-- [📖 Quick Start Guide](docs/QUICK_START.md)
-- [📋 Full Documentation](docs/README.md)
-
-## 🛠️ Development
-
-### Useful Commands
-
-```bash
-# Test system connectivity
-python scripts/troubleshoot.py
-
-# Run pipeline once
-python scripts/test_pipeline.py
-
-# Debug email processing
-python scripts/debug_email.py
-
-# CLI help
-python scripts/cli.py --help
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-**Ready to automate your workflow? Start with the [Quick Start Guide](docs/QUICK_START.md)!**
+- **Email-to-Notion**: Automatically process and categorize emails into Notion databases
+- **Slack Summarization**: Generate daily/weekly summaries of important conversations
+- **Multi-Model Support**: OpenAI, Anthropic Claude, Google Gemini
 - **Extensible Architecture**: Easy to add new agents and integrations
 - **Modern Stack**: Pydantic-AI, LangGraph, FastAPI, Streamlit
 
@@ -161,16 +72,17 @@ This is more secure than using your regular password and won't be stored in plai
 
 ```
 AI-Agents-Swarm/
-├── agents/
-│   ├── core/           # Core agent functionality
-│   ├── email/          # Email processing agents
-│   ├── notion/         # Notion integration
-│   └── slack/          # Slack integration
-├── config/             # Configuration management
-├── utils/              # Shared utilities
-├── examples/           # Example scripts
-├── docs/               # Documentation
-└── tests/              # Test suites
+├── agents/                 # Core agent functionality
+├── api/                    # FastAPI REST API
+├── config/                 # Configuration management
+├── ui/                     # Streamlit dashboard
+├── scripts/                # Utility scripts (CLI, debug, test)
+├── docs/                   # Documentation
+├── tests/                  # Test suites
+├── tools/                  # Development tools
+├── data/                   # Data storage
+├── logs/                   # Log files
+└── examples/               # Example scripts
 ```
 
 ## 🔄 Available Agents
@@ -232,11 +144,12 @@ python -m pytest --cov=agents
 Access the Streamlit dashboard:
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run ui/dashboard.py
 ```
 
 ## 📚 Documentation
 
+- [Quick Start Guide](docs/QUICK_START.md)
 - [Agent Development Guide](docs/agent-development.md)
 - [Configuration Reference](docs/configuration.md)
 - [API Documentation](docs/api.md)
@@ -303,3 +216,5 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Join our community discussions
 
 ---
+
+````

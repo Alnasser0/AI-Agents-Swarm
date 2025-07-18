@@ -15,12 +15,15 @@ Key features:
 import imaplib
 import email
 import email.header
+import email.utils
+import email.message
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 import pickle
 import asyncio
+import time
 
 # Internal imports (will work after pip install)
 from agents.core import BaseAgent, Task, TaskPriority, get_task_extractor
@@ -113,30 +116,33 @@ class EmailAgent(BaseAgent):
             List of EmailMessage objects
         """
         try:
-            with self.connect_to_email() as mail:
-                # Search for unread emails from the last N days
-                since_date = (datetime.now() - timedelta(days=since_days)).strftime('%d-%b-%Y')
-                search_criteria = f'(UNSEEN SINCE {since_date})'
-                
-                status, messages = mail.search(None, search_criteria)
-                if status != 'OK':
-                    self.logger.warning(f"Email search failed: {status}")
-                    return []
-                
-                email_ids = messages[0].split()
-                self.logger.info(f"Found {len(email_ids)} new emails")
-                
-                emails = []
-                for email_id in email_ids:
-                    try:
-                        email_msg = self._parse_email(mail, email_id)
-                        if email_msg and email_msg.message_id not in self.processed_emails:
-                            emails.append(email_msg)
-                    except Exception as e:
-                        self.log_error(e, f"Parsing email {email_id}")
-                        continue
-                
-                return emails
+            mail = self.connect_to_email()
+            
+            # Search for unread emails from the last N days
+            since_date = (datetime.now() - timedelta(days=since_days)).strftime('%d-%b-%Y')
+            search_criteria = f'(UNSEEN SINCE {since_date})'
+            
+            status, messages = mail.search(None, search_criteria)
+            if status != 'OK':
+                self.logger.warning(f"Email search failed: {status}")
+                mail.close()
+                return []
+            
+            email_ids = messages[0].split()
+            self.logger.info(f"Found {len(email_ids)} new emails")
+            
+            emails = []
+            for email_id in email_ids:
+                try:
+                    email_msg = self._parse_email(mail, email_id)
+                    if email_msg and email_msg.message_id not in self.processed_emails:
+                        emails.append(email_msg)
+                except Exception as e:
+                    self.log_error(e, f"Parsing email {email_id}")
+                    continue
+            
+            mail.close()
+            return emails
                 
         except Exception as e:
             self.log_error(e, "Fetching new emails")
@@ -154,12 +160,17 @@ class EmailAgent(BaseAgent):
             EmailMessage object or None if parsing fails
         """
         try:
-            status, msg_data = mail.fetch(email_id, '(RFC822)')
-            if status != 'OK':
+            status, msg_data = mail.fetch(email_id.decode(), '(RFC822)')
+            if status != 'OK' or not msg_data or not msg_data[0]:
                 return None
             
+            # msg_data[0] is a tuple: (message_part, data)
             email_body = msg_data[0][1]
-            email_message = email.message_from_bytes(email_body)
+            if not email_body or not isinstance(email_body, bytes):
+                return None
+                
+            import email as email_module
+            email_message = email_module.message_from_bytes(email_body)
             
             # Extract basic information
             subject = self._decode_header(email_message.get('Subject', ''))
@@ -169,6 +180,7 @@ class EmailAgent(BaseAgent):
             
             # Parse date
             try:
+                import email.utils
                 date = email.utils.parsedate_to_datetime(date_str)
             except:
                 date = datetime.now()
@@ -210,11 +222,11 @@ class EmailAgent(BaseAgent):
             for part in email_message.walk():
                 if part.get_content_type() == "text/plain":
                     payload = part.get_payload(decode=True)
-                    if payload:
+                    if payload and isinstance(payload, bytes):
                         content += payload.decode('utf-8', errors='ignore')
         else:
             payload = email_message.get_payload(decode=True)
-            if payload:
+            if payload and isinstance(payload, bytes):
                 content = payload.decode('utf-8', errors='ignore')
         
         return content.strip()
@@ -325,4 +337,4 @@ class EmailAgent(BaseAgent):
                 self.log_error(e, "Email polling loop")
             
             # Wait before next check
-            asyncio.sleep(self.check_interval)
+            time.sleep(self.check_interval)

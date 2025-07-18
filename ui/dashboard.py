@@ -39,9 +39,11 @@ class Dashboard:
         """Initialize the agent orchestrator."""
         try:
             self.orchestrator = AgentOrchestrator(model=self.selected_model)
+            st.success("✅ System initialized successfully!")
         except Exception as e:
-            st.error(f"Failed to initialize agents: {e}")
-            st.stop()
+            st.error(f"❌ Failed to initialize agents: {e}")
+            st.error("Please check your configuration in the .env file.")
+            self.orchestrator = None
     
     def render_model_selector(self):
         """Render the AI model selector in the sidebar."""
@@ -158,6 +160,10 @@ class Dashboard:
     
     def render_status_cards(self):
         """Render status cards showing system health."""
+        if not self.orchestrator:
+            st.error("❌ System not initialized. Please check your configuration.")
+            return
+            
         stats = self.orchestrator.get_system_stats()
         
         col1, col2, col3, col4 = st.columns(4)
@@ -215,6 +221,10 @@ class Dashboard:
     def render_agent_status(self):
         """Render agent status section."""
         st.subheader("🤖 Agent Status")
+        
+        if not self.orchestrator:
+            st.error("❌ Agents not initialized. Please check your configuration.")
+            return
         
         col1, col2 = st.columns(2)
         
@@ -313,25 +323,53 @@ class Dashboard:
     
     def trigger_email_processing(self):
         """Trigger manual email processing."""
+        if not self.orchestrator:
+            st.error("❌ Orchestrator not initialized. Please check your configuration.")
+            return
+            
         with st.spinner("Processing emails..."):
             try:
-                # This would trigger the actual email processing
-                time.sleep(2)  # Simulate processing time
-                st.success("Email processing completed!")
+                # Run the actual email processing pipeline
+                asyncio.run(self.orchestrator.run_single_cycle())
+                
+                # Get updated stats
+                stats = self.orchestrator.get_system_stats()
+                
+                if stats['tasks_processed'] > 0:
+                    st.success(f"✅ Email processing completed! {stats['tasks_processed']} tasks created.")
+                else:
+                    st.info("📧 Email processing completed. No new tasks found.")
+                
                 st.rerun()
+                
             except Exception as e:
-                st.error(f"Error processing emails: {e}")
-    
+                st.error(f"❌ Error processing emails: {e}")
+                
     def trigger_full_pipeline(self):
         """Trigger the full email-to-notion pipeline."""
+        if not self.orchestrator:
+            st.error("❌ Orchestrator not initialized. Please check your configuration.")
+            return
+            
         with st.spinner("Running full pipeline..."):
             try:
-                # This would trigger the actual pipeline
-                time.sleep(3)  # Simulate processing time
-                st.success("Pipeline completed successfully!")
+                # Run the actual pipeline
+                asyncio.run(self.orchestrator.run_single_cycle())
+                
+                # Get updated stats
+                stats = self.orchestrator.get_system_stats()
+                
+                if stats['tasks_processed'] > 0:
+                    st.success(f"🎉 Pipeline completed! {stats['tasks_processed']} tasks created, {stats['emails_processed']} emails processed.")
+                else:
+                    st.info("🔄 Pipeline completed. No new tasks found.")
+                
                 st.rerun()
+                
             except Exception as e:
-                st.error(f"Error running pipeline: {e}")
+                st.error(f"❌ Error running pipeline: {e}")
+                import traceback
+                st.error(traceback.format_exc())
     
     def render_main_dashboard(self):
         """Render the main dashboard content."""

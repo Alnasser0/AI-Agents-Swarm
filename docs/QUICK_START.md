@@ -1,3 +1,4 @@
+````markdown
 # 🤖 AI Agents Swarm - Quick Start Guide
 
 ## Overview
@@ -60,10 +61,10 @@ config/
    python -m agents.main
    
    # Or launch dashboard
-   python cli.py dashboard
+   python scripts/cli.py dashboard
    
    # Or start API server
-   python cli.py api
+   python scripts/cli.py api
    ```
 
 ## 🎯 First Use Case: Email-to-Notion
@@ -186,8 +187,10 @@ The system is designed for solo developers but can easily be extended:
 ## 📧 Support
 
 For questions or issues:
-1. Check the logs: `python cli.py logs`
-2. Test connections: `python cli.py test`
-3. Review configuration: `python cli.py config`
+1. Check the logs: `python scripts/cli.py logs`
+2. Test connections: `python scripts/cli.py test`
+3. Review configuration: `python scripts/cli.py config`
 
 Happy automating! 🚀
+
+````
