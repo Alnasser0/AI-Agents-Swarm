@@ -23,7 +23,7 @@ import pickle
 import asyncio
 
 # Internal imports (will work after pip install)
-from agents.core import BaseAgent, Task, TaskPriority, task_extractor
+from agents.core import BaseAgent, Task, TaskPriority, get_task_extractor
 from config.settings import settings
 
 
@@ -234,7 +234,7 @@ class EmailAgent(BaseAgent):
             full_text = f"Subject: {email_msg.subject}\n\nContent:\n{email_msg.content}"
             
             # Use AI to extract task information
-            result = await task_extractor.run(full_text)
+            result = await get_task_extractor().run(full_text)
             extracted = result.output
             
             self.logger.info(f"Task extraction result: confidence={extracted.confidence}, is_task={extracted.is_task}")

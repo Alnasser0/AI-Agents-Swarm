@@ -97,7 +97,7 @@ class EmailTaskExtractor(BaseModel):
     confidence: float = Field(description="Confidence score (0-1) that this is a task", ge=0, le=1)
 
 
-def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-latest") -> Agent[Any, EmailTaskExtractor]:
+def create_task_extraction_agent(model: Optional[str] = None) -> Agent[Any, EmailTaskExtractor]:
     """
     Create an AI agent specialized in extracting tasks from text.
     
@@ -109,11 +109,15 @@ def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-lates
     - Google Gemini
 
     Args:
-        model: AI model to use for task extraction
+        model: AI model to use for task extraction. If None, uses best available model.
         
     Returns:
         Configured Pydantic AI agent
     """
+    # Use the best available model if none specified
+    if model is None:
+        model = get_best_available_model()
+    
     return Agent(
         model=model,
         output_type=EmailTaskExtractor,
@@ -187,11 +191,11 @@ def validate_model_availability(model: str) -> bool:
     
     # Check if required API keys are configured
     if model.startswith("openai:"):
-        return bool(settings.openai_api_key)
+        return bool(settings.openai_api_key and settings.openai_api_key != "your-openai-api-key")
     elif model.startswith("anthropic:"):
-        return bool(settings.anthropic_api_key)
+        return bool(settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key")
     elif model.startswith("google:"):
-        return bool(settings.gemini_api_key)
+        return bool(settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key")
     
     return False
 
@@ -206,16 +210,32 @@ def get_best_available_model() -> str:
     from config.settings import settings
     
     # Priority order: Anthropic > Google Gemini > OpenAI
-    if settings.anthropic_api_key:
+    if settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key":
         return "anthropic:claude-3-5-sonnet-latest"
-    elif settings.gemini_api_key:
+    elif settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key":
         return "google:models/gemini-2.0-flash-lite"
-    elif settings.openai_api_key:
+    elif settings.openai_api_key and settings.openai_api_key != "your-openai-api-key":
         return "openai:gpt-4o"
     
     # Fallback to default (may fail if no keys configured)
     return settings.default_model
 
 
-# Global task extraction agent instance
-task_extractor = create_task_extraction_agent()
+def get_task_extractor() -> Agent[Any, EmailTaskExtractor]:
+    """
+    Get the global task extraction agent instance.
+    
+    This function ensures the agent is created with the best available model
+    when first accessed, rather than at module import time.
+    
+    Returns:
+        Configured task extraction agent
+    """
+    global task_extractor
+    if task_extractor is None:
+        task_extractor = create_task_extraction_agent()
+    return task_extractor
+
+
+# Global task extraction agent instance - will be initialized when first used
+task_extractor = None  # Will be initialized when first used

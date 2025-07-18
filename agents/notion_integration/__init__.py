@@ -16,7 +16,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from notion_client import Client
-from notion_client.errors import NotionClientError
+from notion_client.errors import APIResponseError
 
 # Internal imports
 from agents.core import BaseAgent, Task, TaskPriority, TaskStatus
@@ -41,7 +41,7 @@ class NotionAgent(BaseAgent):
         try:
             self.client.databases.retrieve(database_id=self.database_id)
             self.logger.info("Successfully connected to Notion database")
-        except NotionClientError as e:
+        except APIResponseError as e:
             self.log_error(e, "Connecting to Notion database")
             raise
     
@@ -188,7 +188,7 @@ class NotionAgent(BaseAgent):
             self.logger.info(f"Created Notion task: {task.title} (ID: {page_id})")
             return page_id
             
-        except NotionClientError as e:
+        except APIResponseError as e:
             self.log_error(e, f"Creating Notion task: {task.title}")
             return None
     
@@ -217,7 +217,7 @@ class NotionAgent(BaseAgent):
             self.logger.info(f"Updated task status to {status.value}")
             return True
             
-        except NotionClientError as e:
+        except APIResponseError as e:
             self.log_error(e, f"Updating task status: {page_id}")
             return False
     
@@ -280,7 +280,7 @@ class NotionAgent(BaseAgent):
             # For now, return all matching source tasks
             return response.get("results", [])
             
-        except NotionClientError as e:
+        except APIResponseError as e:
             self.log_error(e, f"Searching tasks by source: {source}")
             return []
     
@@ -295,7 +295,7 @@ class NotionAgent(BaseAgent):
             response = self.client.databases.retrieve(database_id=self.database_id)
             return response.get("properties", {})
             
-        except NotionClientError as e:
+        except APIResponseError as e:
             self.log_error(e, "Getting database schema")
             return {}
     

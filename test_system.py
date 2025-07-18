@@ -101,7 +101,7 @@ async def test_ai_agent():
     print("\nTesting AI agent...")
     
     try:
-        from agents.core import task_extractor
+        from agents.core import get_task_extractor
         
         # Test email content
         test_email = """
