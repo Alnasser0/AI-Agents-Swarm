@@ -175,9 +175,9 @@ def main():
     print("🎉 Setup completed successfully!")
     print("\nNext steps:")
     print("1. Run the system: python -m agents.main")
-    print("2. Or launch dashboard: python cli.py dashboard")
-    print("3. Or use API: python cli.py api")
-    print("\nFor help: python cli.py --help")
+    print("2. Or launch dashboard: python scripts/cli.py dashboard")
+    print("3. Or use API: python scripts/cli.py api")
+    print("\nFor help: python scripts/cli.py --help")
 
 if __name__ == "__main__":
     main()
