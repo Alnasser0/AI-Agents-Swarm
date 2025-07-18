@@ -20,6 +20,14 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Configure Streamlit page - MUST be first Streamlit command
+st.set_page_config(
+    page_title="AI Agents Swarm",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Internal imports
 from agents.main import AgentOrchestrator
 from agents.core import Task, get_available_models, get_best_available_model, validate_model_availability
@@ -39,10 +47,11 @@ class Dashboard:
         """Initialize the agent orchestrator."""
         try:
             self.orchestrator = AgentOrchestrator(model=self.selected_model)
-            st.success("✅ System initialized successfully!")
+            self.init_success = True
+            self.init_error = None
         except Exception as e:
-            st.error(f"❌ Failed to initialize agents: {e}")
-            st.error("Please check your configuration in the .env file.")
+            self.init_success = False
+            self.init_error = str(e)
             self.orchestrator = None
     
     def render_model_selector(self):
@@ -93,15 +102,16 @@ class Dashboard:
     
     def render_header(self):
         """Render the dashboard header."""
-        st.set_page_config(
-            page_title="AI Agents Swarm",
-            page_icon="🤖",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
-        
         st.title("🤖 AI Agents Swarm Dashboard")
         st.markdown("*Automating your workflow with intelligent agents*")
+        
+        # Show initialization status
+        if hasattr(self, 'init_success') and self.init_success:
+            st.success("✅ System initialized successfully!")
+        elif hasattr(self, 'init_error') and self.init_error:
+            st.error(f"❌ Failed to initialize agents: {self.init_error}")
+            st.error("Please check your configuration in the .env file.")
+        
         st.divider()
     
     def render_sidebar(self):
@@ -403,9 +413,16 @@ class Dashboard:
         self.render_sidebar()
         self.render_main_dashboard()
         
-        # Auto-refresh every 30 seconds
-        time.sleep(30)
-        st.rerun()
+        # Auto-refresh control
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("🔄 Refresh", key="refresh_btn"):
+                st.rerun()
+        
+        # Auto-refresh every 60 seconds (optional)
+        if st.checkbox("Auto-refresh (60s)", key="auto_refresh"):
+            time.sleep(60)
+            st.rerun()
 
 
 def main():
