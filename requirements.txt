@@ -1,10 +1,6 @@
 # Core AI Libraries
 pydantic-ai
 google-genai
-langgraph
-langchain
-langchain-openai
-langchain-anthropic
 
 # Web Framework & UI
 fastapi==0.115.5
@@ -30,10 +26,10 @@ python-dotenv==1.0.1
 loguru==0.7.3
 schedule==1.2.2
 asyncio-mqtt==0.16.2
+requests==2.32.3
 
 # Dashboard and Visualization
 pandas==2.2.3
-plotly==5.24.1
 
 # CLI Tools
 click==8.1.7

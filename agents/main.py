@@ -20,6 +20,7 @@ from loguru import logger
 # Internal imports
 from agents.core import Task, get_best_available_model, validate_model_availability
 from agents.email_polling import EmailAgent
+from agents.email_polling.realtime import RealTimeEmailProcessor
 from agents.notion_integration import NotionAgent
 from config.settings import settings
 
@@ -50,6 +51,20 @@ class AgentOrchestrator:
         try:
             self.email_agent = EmailAgent(model=self.model)
             self.notion_agent = NotionAgent(model=self.model)
+            
+            # Initialize real-time email processor
+            self.realtime_processor = RealTimeEmailProcessor(
+                email_callback=self._realtime_email_callback
+            )
+            
+            # Auto-start real-time monitoring if enabled
+            if getattr(settings, 'enable_realtime_email', True):
+                # Start in a separate thread to avoid blocking initialization
+                import threading
+                threading.Thread(
+                    target=self._start_realtime_delayed,
+                    daemon=True
+                ).start()
             
             # Validate Notion database setup
             if not self.notion_agent.validate_database_setup():
@@ -83,6 +98,24 @@ class AgentOrchestrator:
             self.processing_lock = asyncio.Lock()
         return self.processing_lock
     
+    async def _realtime_email_callback(self):
+        """Callback for real-time email processing."""
+        try:
+            self.logger.info("Processing real-time email notification")
+            # Process emails immediately with smaller batch for speed
+            await self.process_email_to_notion_pipeline(email_limit=10, since_days=1)
+        except Exception as e:
+            self.logger.error(f"Real-time email processing error: {e}")
+    
+    def _start_realtime_delayed(self):
+        """Start real-time monitoring with a delay to allow initialization to complete."""
+        import time
+        time.sleep(2)  # Wait for initialization to complete
+        try:
+            self.start_realtime_monitoring()
+        except Exception as e:
+            self.logger.error(f"Failed to auto-start real-time monitoring: {e}")
+    
     async def process_email_to_notion_pipeline(self, email_limit: int = 50, since_days: int = 7) -> None:
         """
         Main pipeline: Email → AI Analysis → Notion Task Creation.
@@ -92,10 +125,6 @@ class AgentOrchestrator:
         2. Extracts tasks using AI
         3. Creates tasks in Notion
         4. Updates tracking data
-        
-        Args:
-            email_limit: Maximum number of emails to process
-            since_days: Number of days back to check for emails
         """
         self.logger.info("Starting email-to-notion pipeline")
         
@@ -108,47 +137,41 @@ class AgentOrchestrator:
                 return
             
             # Step 2: Create tasks in Notion
-            async with self._get_processing_lock():
+            processing_lock = self._get_processing_lock()
+            async with processing_lock:
                 page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
-                # Mark emails as processed only for successfully created tasks
-                successful_tasks = []
-                for i, (task, page_id) in enumerate(zip(new_tasks, page_ids)):
-                    if page_id is not None:
-                        successful_tasks.append(task)
-                
-                # Mark successful tasks as processed
-                if successful_tasks:
-                    self.email_agent.mark_tasks_as_processed(successful_tasks)
-                
                 # Update stats
-                successful_count = len(successful_tasks)
-                self.stats["tasks_processed"] += successful_count
+                successful_tasks = len([pid for pid in page_ids if pid is not None])
+                self.stats["tasks_processed"] += successful_tasks
                 self.stats["emails_processed"] += len(new_tasks)
                 self.stats["last_run"] = datetime.now()
                 
-                self.logger.info(f"Pipeline complete: {successful_count}/{len(new_tasks)} tasks created")
-                
-                # Log failed tasks for debugging
-                failed_count = len(new_tasks) - successful_count
-                if failed_count > 0:
-                    self.logger.warning(f"{failed_count} tasks failed to create in Notion and will be retried")
+                self.logger.info(f"Pipeline complete: {successful_tasks}/{len(new_tasks)} tasks created")
                 
         except Exception as e:
             self.stats["errors"] += 1
             self.logger.error(f"Pipeline error: {e}")
             raise
     
-    async def run_single_cycle(self, email_limit: int = 50, since_days: int = 7) -> None:
+    async def run_single_cycle(self, email_limit: Optional[int] = None, since_days: Optional[int] = None) -> None:
         """
         Run a single processing cycle.
         
         Args:
-            email_limit: Maximum number of emails to process
-            since_days: Number of days back to check for emails
+            email_limit: Maximum number of emails to process (uses default if None)
+            since_days: Days back to search for emails (uses default if None)
         """
         try:
-            await self.process_email_to_notion_pipeline(email_limit=email_limit, since_days=since_days)
+            # Use provided parameters or fall back to defaults
+            if email_limit is not None or since_days is not None:
+                await self.process_email_to_notion_pipeline(
+                    email_limit=email_limit or 50,
+                    since_days=since_days or 7
+                )
+            else:
+                # Use method defaults
+                await self.process_email_to_notion_pipeline()
         except Exception as e:
             self.logger.error(f"Cycle error: {e}")
     
@@ -159,9 +182,9 @@ class AgentOrchestrator:
             return
         
         # Schedule email processing every N minutes
-        interval_minutes = settings.email_check_interval // 60
+        interval_minutes = getattr(self, 'check_interval_minutes', settings.email_check_interval // 60)
         schedule.every(interval_minutes).minutes.do(
-            lambda: asyncio.run(self.run_single_cycle())
+            lambda: asyncio.run(self.run_single_cycle_with_config())
         )
         
         # Schedule daily cleanup at 2 AM
@@ -189,26 +212,8 @@ class AgentOrchestrator:
             "uptime_hours": uptime.total_seconds() / 3600,
             "queue_size": len(self.task_queue),
             "email_agent_status": "active",
-            "notion_agent_status": "active",
-            "processed_emails_count": self.email_agent.get_processed_email_count() if self.email_agent else 0
+            "notion_agent_status": "active"
         }
-    
-    def clear_processed_emails(self) -> None:
-        """Clear processed emails for testing."""
-        if self.email_agent:
-            self.email_agent.clear_processed_emails()
-            self.logger.info("Cleared processed emails")
-    
-    def force_email_processing(self, email_limit: int = 50, since_days: int = 7) -> None:
-        """
-        Force email processing for debugging.
-        
-        Args:
-            email_limit: Maximum number of emails to process
-            since_days: Number of days back to check for emails
-        """
-        self.logger.info("Forcing email processing")
-        asyncio.run(self.process_email_to_notion_pipeline(email_limit=email_limit, since_days=since_days))
     
     def run_background_mode(self) -> None:
         """Run the orchestrator in background mode with scheduling."""
@@ -244,6 +249,52 @@ class AgentOrchestrator:
         except Exception as e:
             self.logger.error(f"Interactive mode error: {e}")
             raise
+    
+    def start_realtime_monitoring(self):
+        """Start real-time email monitoring."""
+        try:
+            if self.realtime_processor:
+                self.realtime_processor.start_idle_monitoring()
+                self.logger.info("Real-time email monitoring started")
+        except Exception as e:
+            self.logger.error(f"Failed to start real-time monitoring: {e}")
+    
+    def stop_realtime_monitoring(self):
+        """Stop real-time email monitoring."""
+        try:
+            if self.realtime_processor:
+                self.realtime_processor.stop_idle_monitoring()
+                self.logger.info("Real-time email monitoring stopped")
+        except Exception as e:
+            self.logger.error(f"Failed to stop real-time monitoring: {e}")
+    
+    def get_realtime_status(self) -> dict:
+        """Get real-time monitoring status."""
+        if self.realtime_processor:
+            return self.realtime_processor.get_status()
+        return {"idle_running": False, "idle_thread_alive": False, "last_idle_restart": None, "idle_supported": False}
+    
+    def configure_email_processing(self, email_limit: int = 50, since_days: int = 7, check_interval_minutes: int = 5):
+        """
+        Configure email processing parameters.
+        
+        Args:
+            email_limit: Maximum number of emails to process per cycle
+            since_days: Days back to search for emails
+            check_interval_minutes: How often to check for new emails
+        """
+        self.email_limit = email_limit
+        self.since_days = since_days
+        self.check_interval_minutes = check_interval_minutes
+        
+        self.logger.info(f"Email processing configured: {email_limit} emails, {since_days} days back, {check_interval_minutes}min interval")
+    
+    async def run_single_cycle_with_config(self) -> None:
+        """Run a single cycle using configured parameters."""
+        email_limit = getattr(self, 'email_limit', 50)
+        since_days = getattr(self, 'since_days', 7)
+        
+        await self.run_single_cycle(email_limit=email_limit, since_days=since_days)
 
 
 def main():

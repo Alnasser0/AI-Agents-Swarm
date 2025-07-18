@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     email_imap_server: str = Field(default="imap.gmail.com", description="IMAP server")
     email_imap_port: int = Field(default=993, description="IMAP port")
     email_check_interval: int = Field(default=300, description="Email check interval in seconds")
+    enable_realtime_email: bool = Field(default=True, description="Enable real-time email processing via IMAP IDLE")
+    realtime_fallback_interval: int = Field(default=60, description="Fallback polling interval when IDLE fails")
     
     # Notion Settings
     notion_api_key: str = Field(description="Notion integration API key")

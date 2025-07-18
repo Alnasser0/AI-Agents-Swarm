@@ -95,6 +95,16 @@ async def startup_event():
         raise RuntimeError(f"Failed to initialize orchestrator: {e}")
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0"
+    }
+
+
 @app.get("/")
 async def root():
     """Root endpoint with system info."""
@@ -102,13 +112,20 @@ async def root():
         "name": "AI Agents Swarm API",
         "version": "1.0.0",
         "status": "running",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "tasks": "/tasks",
+            "agents": "/agents",
+            "webhook": "/webhook/email"
+        }
     }
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check endpoint."""
     if orchestrator is None:
         raise HTTPException(status_code=503, detail="System not initialized")
     
@@ -268,21 +285,61 @@ async def get_notion_agent_status():
 
 
 @app.post("/webhook/email")
-async def email_webhook(data: dict):
-    """Webhook endpoint for email notifications (future use)."""
-    return {
-        "message": "Email webhook received",
-        "data": data
-    }
+async def email_webhook(data: dict, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for email notifications.
+    
+    This endpoint receives notifications from email services and triggers
+    immediate email processing for faster response times.
+    """
+    try:
+        if orchestrator is None:
+            raise HTTPException(status_code=503, detail="System not initialized")
+        
+        # Log webhook receipt
+        print(f"Email webhook received: {data}")
+        
+        # Add background task to process emails immediately
+        background_tasks.add_task(
+            _process_webhook_email,
+            data
+        )
+        
+        return {
+            "message": "Email webhook received and processing started",
+            "timestamp": datetime.now().isoformat(),
+            "data": data
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Webhook processing error: {str(e)}")
 
 
-@app.post("/webhook/slack")
-async def slack_webhook(data: dict):
-    """Webhook endpoint for Slack notifications (future use)."""
-    return {
-        "message": "Slack webhook received",
-        "data": data
+async def _process_webhook_email(webhook_data: dict):
+    """Process email webhook in background."""
+    try:
+        if orchestrator and hasattr(orchestrator, 'realtime_processor'):
+            orchestrator.realtime_processor.process_webhook_notification(webhook_data)
+        else:
+            # Fallback to immediate email processing
+            await orchestrator.process_email_to_notion_pipeline(email_limit=10, since_days=1)
+            
+    except Exception as e:
+        print(f"Background webhook processing error: {e}")
+
+
+@app.get("/webhook/email/test")
+async def test_email_webhook():
+    """Test endpoint to trigger email webhook processing."""
+    test_data = {
+        "provider": "gmail",
+        "event": "new_email",
+        "timestamp": datetime.now().isoformat(),
+        "test": True
     }
+    
+    background_tasks = BackgroundTasks()
+    return await email_webhook(test_data, background_tasks)
 
 
 def run_server():

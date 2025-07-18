@@ -243,6 +243,30 @@ class Dashboard:
                         st.error(f"Error: {e}")
                 else:
                     st.error("Orchestrator not initialized")
+            
+            # Real-time Email Controls
+            st.subheader("⚡ Real-time Email")
+            
+            if self.orchestrator and hasattr(self.orchestrator, 'realtime_processor'):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("🚀 Start Real-time"):
+                        try:
+                            self.orchestrator.start_realtime_monitoring()
+                            st.success("Real-time started!")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                            
+                with col2:
+                    if st.button("⏹️ Stop Real-time"):
+                        try:
+                            self.orchestrator.stop_realtime_monitoring()
+                            st.success("Real-time stopped!")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            else:
+                st.warning("Real-time processor not available")
     
     def render_status_cards(self):
         """Render status cards showing system health."""
@@ -305,6 +329,23 @@ class Dashboard:
             st.text(f"Provider: {settings.email_provider}")
             st.text(f"Account: {settings.email_address}")
             st.text(f"Check Interval: {settings.email_check_interval//60} minutes")
+            
+            # Real-time processing status
+            if self.orchestrator and hasattr(self.orchestrator, 'realtime_processor'):
+                stats = self.orchestrator.get_system_stats()
+                realtime_status = stats.get('realtime_email', {})
+                
+                if realtime_status.get('idle_supported', False):
+                    if realtime_status.get('idle_running', False) and realtime_status.get('idle_thread_alive', False):
+                        st.success("⚡ Real-time: Active (IMAP IDLE)")
+                    elif realtime_status.get('idle_running', False):
+                        st.warning("⚡ Real-time: Starting...")
+                    else:
+                        st.info("⚡ Real-time: Stopped")
+                else:
+                    st.info("⚡ Real-time: Polling only (IDLE not supported)")
+            else:
+                st.info("⚡ Real-time: Not initialized")
         
         with col2:
             st.markdown("#### Notion Agent")
