@@ -51,19 +51,19 @@ class NotionAgent(BaseAgent):
             TaskPriority.LOW: "Low",
             TaskPriority.MEDIUM: "Medium", 
             TaskPriority.HIGH: "High",
-            TaskPriority.URGENT: "Urgent"
+            TaskPriority.URGENT: "High"  # Map urgent to high since your DB doesn't have urgent
         }
         return priority_map.get(priority, "Medium")
     
     def _status_to_notion_select(self, status: TaskStatus) -> str:
         """Convert TaskStatus enum to Notion select option."""
         status_map = {
-            TaskStatus.TODO: "To Do",
-            TaskStatus.IN_PROGRESS: "In Progress",
+            TaskStatus.TODO: "Not started",
+            TaskStatus.IN_PROGRESS: "In progress",
             TaskStatus.DONE: "Done",
-            TaskStatus.CANCELLED: "Cancelled"
+            TaskStatus.CANCELLED: "Not started"  # Map cancelled to not started
         }
-        return status_map.get(status, "To Do")
+        return status_map.get(status, "Not started")
     
     def create_task_in_notion(self, task: Task) -> Optional[str]:
         """
@@ -76,9 +76,9 @@ class NotionAgent(BaseAgent):
             Notion page ID if successful, None otherwise
         """
         try:
-            # Prepare the page properties
+            # Prepare the page properties to match your database schema
             properties = {
-                "Name": {
+                "Task name": {
                     "title": [
                         {
                             "text": {
@@ -88,7 +88,7 @@ class NotionAgent(BaseAgent):
                     ]
                 },
                 "Status": {
-                    "select": {
+                    "status": {
                         "name": self._status_to_notion_select(task.status)
                     }
                 },
@@ -97,37 +97,40 @@ class NotionAgent(BaseAgent):
                         "name": self._priority_to_notion_select(task.priority)
                     }
                 },
-                "Source": {
+                "Description": {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": task.description
+                            }
+                        }
+                    ]
+                },
+                "Task type": {
                     "select": {
-                        "name": task.source.title()
+                        "name": "💬 Feature request"  # Default task type
                     }
                 },
-                "Created": {
-                    "date": {
-                        "start": task.created_at.isoformat()
+                "Effort level": {
+                    "select": {
+                        "name": "Medium"  # Default effort level
                     }
                 }
             }
             
             # Add due date if provided
             if task.due_date:
-                properties["Due Date"] = {
+                properties["Due date"] = {
                     "date": {
                         "start": task.due_date.isoformat()
                     }
                 }
             
-            # Add tags as multi-select
-            if task.tags:
-                properties["Tags"] = {
-                    "multi_select": [
-                        {"name": tag} for tag in task.tags
-                    ]
-                }
-            
-            # Create the page content with description
+            # Create the page with minimal content since we have description in properties
             children = []
-            if task.description:
+            
+            # Add source information as content
+            if task.source:
                 children.append({
                     "object": "block",
                     "type": "paragraph",
@@ -136,14 +139,29 @@ class NotionAgent(BaseAgent):
                             {
                                 "type": "text",
                                 "text": {
-                                    "content": task.description
+                                    "content": f"Source: {task.source}"
                                 }
                             }
                         ]
                     }
                 })
             
-            # Add metadata as a collapsible section
+            # Add metadata if available
+            if task.metadata:
+                children.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": f"Metadata: {task.metadata}"
+                                }
+                            }
+                        ]
+                    }
+                })
             if task.metadata:
                 children.append({
                     "object": "block",
@@ -208,7 +226,7 @@ class NotionAgent(BaseAgent):
                 page_id=page_id,
                 properties={
                     "Status": {
-                        "select": {
+                        "status": {
                             "name": self._status_to_notion_select(status)
                         }
                     }
@@ -309,12 +327,12 @@ class NotionAgent(BaseAgent):
         try:
             schema = self.get_database_schema()
             
+            # Updated to match your Tasks Tracker database schema with correct property types
             required_properties = {
-                "Name": "title",
-                "Status": "select", 
+                "Task name": "title",
+                "Status": "status",  # Notion uses "status" type, not "select"
                 "Priority": "select",
-                "Source": "select",
-                "Created": "date"
+                "Description": "rich_text"
             }
             
             for prop_name, prop_type in required_properties.items():
