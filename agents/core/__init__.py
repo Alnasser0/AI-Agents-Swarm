@@ -233,7 +233,7 @@ def get_best_available_model() -> str:
     # Check if we have valid API keys (not placeholder values)
     if (settings.google_api_key and settings.google_api_key != "your-google-api-key") or \
        (settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key"):
-        return "google-gla:gemini-2.0-flash-lite" # default
+        return "google-gla:gemini-2.5-flash" # default
     elif settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key":
         return "anthropic:claude-3-5-sonnet-latest"
     elif settings.openai_api_key and settings.openai_api_key != "your-openai-api-key":
