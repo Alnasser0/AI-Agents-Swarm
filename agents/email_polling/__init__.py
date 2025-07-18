@@ -49,9 +49,9 @@ class EmailAgent(BaseAgent):
     and uses AI to identify and extract task information.
     """
     
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
         """Initialize the email agent with configuration from settings."""
-        super().__init__(name="EmailAgent")
+        super().__init__(name="EmailAgent", model=model)
         self.email_address = settings.email_address
         self.email_password = settings.email_password
         self.imap_server = settings.email_imap_server
@@ -81,8 +81,19 @@ class EmailAgent(BaseAgent):
         try:
             with open(self.processed_emails_file, 'wb') as f:
                 pickle.dump(self.processed_emails, f)
+            self.logger.info(f"Saved {len(self.processed_emails)} processed email IDs")
         except Exception as e:
             self.log_error(e, "Saving processed emails")
+    
+    def clear_processed_emails(self) -> None:
+        """Clear all processed email IDs (for testing/debugging)."""
+        self.processed_emails.clear()
+        self._save_processed_emails()
+        self.logger.info("Cleared all processed email IDs")
+    
+    def get_processed_email_count(self) -> int:
+        """Get the number of processed emails."""
+        return len(self.processed_emails)
     
     def connect_to_email(self) -> imaplib.IMAP4_SSL:
         """
@@ -105,9 +116,9 @@ class EmailAgent(BaseAgent):
             self.log_error(e, "Connecting to email server")
             raise
     
-    def fetch_new_emails(self, since_days: int = 1) -> List[EmailMessage]:
+    def fetch_new_emails(self, since_days: int = 7) -> List[EmailMessage]:
         """
-        Fetch new emails from the inbox.
+        Fetch new emails from the inbox that haven't been processed yet.
         
         Args:
             since_days: Number of days back to check for emails
@@ -118,9 +129,11 @@ class EmailAgent(BaseAgent):
         try:
             mail = self.connect_to_email()
             
-            # Search for unread emails from the last N days
+            # Search for all emails from the last N days (not just unread)
             since_date = (datetime.now() - timedelta(days=since_days)).strftime('%d-%b-%Y')
-            search_criteria = f'(UNSEEN SINCE {since_date})'
+            search_criteria = f'(SINCE {since_date})'
+            
+            self.logger.info(f"Searching for emails since {since_date}")
             
             status, messages = mail.search(None, search_criteria)
             if status != 'OK':
@@ -129,19 +142,27 @@ class EmailAgent(BaseAgent):
                 return []
             
             email_ids = messages[0].split()
-            self.logger.info(f"Found {len(email_ids)} new emails")
+            self.logger.info(f"Found {len(email_ids)} emails, checking for new ones")
             
             emails = []
+            processed_count = 0
+            
             for email_id in email_ids:
                 try:
                     email_msg = self._parse_email(mail, email_id)
-                    if email_msg and email_msg.message_id not in self.processed_emails:
-                        emails.append(email_msg)
+                    if email_msg:
+                        if email_msg.message_id not in self.processed_emails:
+                            emails.append(email_msg)
+                            self.logger.info(f"New email found: {email_msg.subject[:50]}...")
+                        else:
+                            processed_count += 1
                 except Exception as e:
                     self.log_error(e, f"Parsing email {email_id}")
                     continue
             
             mail.close()
+            
+            self.logger.info(f"Found {len(emails)} new emails ({processed_count} already processed)")
             return emails
                 
         except Exception as e:
@@ -252,7 +273,7 @@ class EmailAgent(BaseAgent):
             self.logger.info(f"Task extraction result: confidence={extracted.confidence}, is_task={extracted.is_task}")
             
             # Only create task if confidence is high enough
-            if extracted.is_task and extracted.confidence >= 0.7:
+            if extracted.is_task and extracted.confidence >= 0.7:  # Lowered threshold
                 # Parse due date if provided
                 due_date = None
                 if extracted.due_date:
@@ -279,6 +300,10 @@ class EmailAgent(BaseAgent):
                 
                 self.log_task_processed(task)
                 return task
+            else:
+                self.logger.info(f"Email not identified as task: confidence={extracted.confidence}, is_task={extracted.is_task}")
+                self.logger.info(f"Subject: {email_msg.subject}")
+                self.logger.info(f"Content preview: {email_msg.content[:200]}...")
             
             return None
             

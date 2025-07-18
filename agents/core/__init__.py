@@ -59,18 +59,18 @@ class BaseAgent:
     behavior and logging across the system.
     """
     
-    def __init__(self, name: str, model: str = "anthropic:claude-3-5-sonnet-latest"):
+    def __init__(self, name: str, model: Optional[str] = None):
         """
         Initialize the base agent.
         
         Args:
             name: Agent name for logging
-            model: AI model to use
+            model: AI model to use. If None, uses the best available model.
         """
         self.name = name
-        self.model = model
+        self.model = model or get_best_available_model()
         self.logger = logger.bind(agent=name)
-        self.logger.info(f"Initialized {name} agent with model {model}")
+        self.logger.info(f"Initialized {name} agent with model {self.model}")
     
     def log_task_processed(self, task: Task) -> None:
         """Log when a task is processed."""
@@ -169,10 +169,13 @@ def get_available_models() -> Dict[str, List[str]]:
             "anthropic:claude-3-opus-latest"
         ],
         "google": [
-            "google:gemini-2.5-pro",
-            "google:models/gemini-2.5-flash",
-            "google:models/gemini-2.0-flash",
-            "google:models/gemini-2.0-flash-lite",
+            "google-gla:gemini-2.5-pro",
+            "google-gla:gemini-2.5-flash",
+            "google-gla:gemini-2.0-flash",
+            "google-gla:gemini-2.0-flash-lite",
+            "google-vertex:gemini-2.5-pro",
+            "google-vertex:gemini-2.5-flash",
+            "google-vertex:gemini-2.0-flash",
         ]
     }
 
@@ -194,8 +197,9 @@ def validate_model_availability(model: str) -> bool:
         return bool(settings.openai_api_key and settings.openai_api_key != "your-openai-api-key")
     elif model.startswith("anthropic:"):
         return bool(settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key")
-    elif model.startswith("google:"):
-        return bool(settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key")
+    elif model.startswith("google:") or model.startswith("google-gla:") or model.startswith("google-vertex:"):
+        return bool((settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key") or
+                   (settings.google_api_key and settings.google_api_key != "your-google-api-key"))
     
     return False
 
@@ -209,11 +213,13 @@ def get_best_available_model() -> str:
     """
     from config.settings import settings
     
-    # Priority order: Anthropic > Google Gemini > OpenAI
-    if settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key":
+    # Priority order: Google Gemini 2.5 Pro > Gemini 2.5 Flash > Anthropic > OpenAI
+    # Check if we have valid API keys (not placeholder values)
+    if (settings.google_api_key and settings.google_api_key != "your-google-api-key") or \
+       (settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key"):
+        return "google-gla:gemini-2.5-pro"  # Best model available
+    elif settings.anthropic_api_key and settings.anthropic_api_key != "your-anthropic-api-key":
         return "anthropic:claude-3-5-sonnet-latest"
-    elif settings.gemini_api_key and settings.gemini_api_key != "your-gemini-api-key":
-        return "google:models/gemini-2.0-flash-lite"
     elif settings.openai_api_key and settings.openai_api_key != "your-openai-api-key":
         return "openai:gpt-4o"
     

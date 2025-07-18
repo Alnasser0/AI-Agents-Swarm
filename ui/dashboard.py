@@ -167,6 +167,31 @@ class Dashboard:
             if st.button("🧹 Clear Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.success("Cache cleared!")
+            
+            st.divider()
+            
+            # Debug controls
+            st.subheader("🐛 Debug")
+            
+            if st.button("📧 Force Process Emails", use_container_width=True):
+                if self.orchestrator:
+                    try:
+                        self.orchestrator.force_email_processing()
+                        st.success("Email processing triggered!")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Orchestrator not initialized")
+            
+            if st.button("🗑️ Clear Processed Emails", use_container_width=True):
+                if self.orchestrator:
+                    try:
+                        self.orchestrator.clear_processed_emails()
+                        st.success("Processed emails cleared!")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Orchestrator not initialized")
     
     def render_status_cards(self):
         """Render status cards showing system health."""
@@ -176,7 +201,7 @@ class Dashboard:
             
         stats = self.orchestrator.get_system_stats()
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             st.metric(
@@ -194,12 +219,19 @@ class Dashboard:
         
         with col3:
             st.metric(
+                label="🗃️ Processed Cache",
+                value=stats.get("processed_emails_count", 0),
+                delta=None
+            )
+        
+        with col4:
+            st.metric(
                 label="⏰ Uptime (hours)",
                 value=f"{stats['uptime_hours']:.1f}",
                 delta=None
             )
         
-        with col4:
+        with col5:
             st.metric(
                 label="❌ Errors",
                 value=stats["errors"],

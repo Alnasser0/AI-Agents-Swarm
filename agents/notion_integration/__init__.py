@@ -31,9 +31,9 @@ class NotionAgent(BaseAgent):
     providing a clean interface between the AI agents and Notion.
     """
     
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
         """Initialize the Notion agent with API credentials."""
-        super().__init__(name="NotionAgent")
+        super().__init__(name="NotionAgent", model=model)
         self.client = Client(auth=settings.notion_api_key)
         self.database_id = settings.notion_database_id
         

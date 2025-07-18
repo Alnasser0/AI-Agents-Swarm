@@ -46,10 +46,10 @@ class AgentOrchestrator:
             
         self.logger.info(f"Using AI model: {self.model}")
         
-        # Initialize agents
+        # Initialize agents with the selected model
         try:
-            self.email_agent = EmailAgent()
-            self.notion_agent = NotionAgent()
+            self.email_agent = EmailAgent(model=self.model)
+            self.notion_agent = NotionAgent(model=self.model)
             
             # Validate Notion database setup
             if not self.notion_agent.validate_database_setup():
@@ -158,8 +158,20 @@ class AgentOrchestrator:
             "uptime_hours": uptime.total_seconds() / 3600,
             "queue_size": len(self.task_queue),
             "email_agent_status": "active",
-            "notion_agent_status": "active"
+            "notion_agent_status": "active",
+            "processed_emails_count": self.email_agent.get_processed_email_count() if self.email_agent else 0
         }
+    
+    def clear_processed_emails(self) -> None:
+        """Clear processed emails for testing."""
+        if self.email_agent:
+            self.email_agent.clear_processed_emails()
+            self.logger.info("Cleared processed emails")
+    
+    def force_email_processing(self) -> None:
+        """Force email processing for debugging."""
+        self.logger.info("Forcing email processing")
+        asyncio.run(self.process_email_to_notion_pipeline())
     
     def run_background_mode(self) -> None:
         """Run the orchestrator in background mode with scheduling."""

@@ -5,6 +5,7 @@ This module handles all configuration through environment variables
 and provides a centralized settings object for the entire application.
 """
 
+import os
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import Optional
@@ -38,6 +39,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
     gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
+    google_api_key: Optional[str] = Field(default=None, description="Google API key (alias for Gemini)")
     default_model: str = Field(default="anthropic:claude-3-5-sonnet-latest", description="Default AI model")
     
     # Application Settings
@@ -55,6 +57,22 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+    
+    def __init__(self, **kwargs):
+        """Initialize settings and set environment variables for AI libraries."""
+        super().__init__(**kwargs)
+        
+        # Set environment variables that AI libraries expect
+        if self.google_api_key and not os.environ.get('GOOGLE_API_KEY'):
+            os.environ['GOOGLE_API_KEY'] = self.google_api_key
+        elif self.gemini_api_key and not os.environ.get('GOOGLE_API_KEY'):
+            os.environ['GOOGLE_API_KEY'] = self.gemini_api_key
+        
+        if self.openai_api_key and not os.environ.get('OPENAI_API_KEY'):
+            os.environ['OPENAI_API_KEY'] = self.openai_api_key
+        
+        if self.anthropic_api_key and not os.environ.get('ANTHROPIC_API_KEY'):
+            os.environ['ANTHROPIC_API_KEY'] = self.anthropic_api_key
 
 
 # Global settings instance
