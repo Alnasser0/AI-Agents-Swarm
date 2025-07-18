@@ -65,6 +65,40 @@ class NotionAgent(BaseAgent):
         }
         return status_map.get(status, "Not started")
     
+    def _task_exists(self, task: Task) -> bool:
+        """
+        Check if a task with the same title already exists in Notion.
+        
+        Args:
+            task: Task to check for duplicates
+            
+        Returns:
+            True if task exists, False otherwise
+        """
+        try:
+            # Query the database for tasks with the same title
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                filter={
+                    "property": "Task name",
+                    "title": {
+                        "equals": task.title
+                    }
+                }
+            )
+            
+            # If any results are returned, the task exists
+            results = response.get("results", [])
+            if results:
+                self.logger.info(f"Found {len(results)} existing tasks with title: {task.title}")
+                return True
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error checking for duplicate task: {e}")
+            # If we can't check, assume it doesn't exist to avoid blocking task creation
+            return False
+    
     def create_task_in_notion(self, task: Task) -> Optional[str]:
         """
         Create a new task in the Notion database.
@@ -76,6 +110,11 @@ class NotionAgent(BaseAgent):
             Notion page ID if successful, None otherwise
         """
         try:
+            # Check for duplicate tasks first
+            if self._task_exists(task):
+                self.logger.warning(f"Task '{task.title}' already exists in Notion, skipping creation")
+                return None
+            
             # Prepare the page properties to match your database schema
             properties = {
                 "Task name": {

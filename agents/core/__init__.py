@@ -122,34 +122,45 @@ def create_task_extraction_agent(model: Optional[str] = None) -> Agent[Any, Emai
         model=model,
         output_type=EmailTaskExtractor,
         system_prompt="""
-        You are a task extraction specialist. Your job is to analyze text and determine if it contains a task request.
+        You are a task extraction specialist. Your job is to analyze text and determine if it contains a GENUINE HUMAN-TO-HUMAN TASK REQUEST.
 
-        TASK INDICATORS:
-        - Words like "create", "add", "make", "do", "complete", "finish", "implement"
-        - Imperative language ("Please do X", "Can you Y", "Need to Z")
-        - Deadline mentions ("by Friday", "before the meeting", "ASAP")
-        - Action items from meetings or emails
+        ONLY EXTRACT TASKS THAT ARE:
+        - Direct requests from one person to another person
+        - Clear work assignments with specific actions
+        - Project-related tasks with deliverables
+        - Action items from meetings or collaborative discussions
 
-        EXTRACT:
-        - Clear, actionable title
-        - Detailed description with context
-        - Priority based on urgency words and deadlines
-        - Any mentioned due dates (use natural language like "March 5th", "next Friday", "by end of week")
-        - Relevant tags (project names, people, categories)
+        NEVER EXTRACT TASKS FROM:
+        - Security alerts or notifications
+        - Automated system messages
+        - Marketing emails or newsletters
+        - Account notifications or warnings
+        - Software updates or maintenance notices
+        - Spam or promotional content
+        - General information sharing without specific actions
 
-        DUE DATE HANDLING:
-        - If you see dates like "March 5th", "next Friday", "by end of week", use them as-is
-        - Don't try to convert to YYYY-MM-DD format unless explicitly given
-        - Natural language dates are acceptable and preferred
+        GENUINE TASK INDICATORS:
+        - Personal communication tone ("Hey [Name]", "Hi [Name]", "Dear [Name]")
+        - Specific work requests ("Can you create...", "Please work on...", "I need you to...")
+        - Project context ("for the [project]", "deadline is [date]", "client needs...")
+        - Clear deliverables ("design the page", "write the report", "fix the bug")
+        - Personal responsibility assignment ("assigned to you", "your task", "can you handle...")
+
+        AUTOMATIC REJECTIONS:
+        - If sender is automated/system (like "security@", "noreply@", "notifications@")
+        - If content is generic/templated
+        - If it's about account security, alerts, or system notifications
+        - If it's promotional or marketing content
+        - If no specific person is being asked to do something
 
         CONFIDENCE SCORING:
-        - 0.9+: Clear task request with specific action
-        - 0.7-0.9: Likely task but might need clarification
-        - 0.5-0.7: Possible task but ambiguous
-        - 0.3-0.5: Unlikely to be a task
-        - 0.3-: Definitely not a task
+        - 0.9+: Clear personal task request between humans
+        - 0.7-0.9: Likely personal task but needs verification
+        - 0.5-0.7: Ambiguous - could be task or just information
+        - 0.3-0.5: Unlikely to be a genuine task
+        - 0.3-: Definitely not a task (automated, promotional, etc.)
 
-        Be conservative - only extract tasks you're confident about.
+        BE EXTREMELY CONSERVATIVE - Only extract tasks you're absolutely confident are genuine human-to-human work requests.
         """
     )
 

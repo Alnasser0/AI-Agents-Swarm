@@ -17,8 +17,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
 # Configure Streamlit page - MUST be first Streamlit command
 st.set_page_config(
@@ -153,7 +151,9 @@ class Dashboard:
             st.header("🎛️ Control Panel")
             
             # Manual trigger section
-            st.subheader("Manual Triggers")
+            st.subheader("**Automated Processing** - Uses default settings")
+            st.caption("📧 Process Emails: Default (50 emails, 7 days back) | 🔄 Full Pipeline: Complete email-to-notion workflow")
+            st.info("ℹ️ **Automatic Duplicate Prevention**: System automatically detects and prevents duplicate tasks in Notion")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -202,6 +202,7 @@ class Dashboard:
             
             # Debug controls
             st.subheader("🐛 Debug")
+            st.caption("**Advanced Controls** - Custom settings for debugging and testing")
             
             # Email processing controls
             col1, col2 = st.columns(2)
@@ -210,7 +211,8 @@ class Dashboard:
             with col2:
                 since_days = st.number_input("Days Back", min_value=1, max_value=30, value=7, help="Days back to check emails")
             
-            if st.button("📧 Process Custom Batch", use_container_width=True):
+            st.markdown("**Custom Batch Processing**")
+            if st.button("📧 Process Custom Batch", use_container_width=True, help="Process emails with custom settings above"):
                 if self.orchestrator:
                     try:
                         self.orchestrator.force_email_processing(email_limit=email_limit, since_days=since_days)
@@ -220,7 +222,8 @@ class Dashboard:
                 else:
                     st.error("Orchestrator not initialized")
             
-            if st.button("📧 Force Process Emails", use_container_width=True):
+            st.markdown("**Force Operations** - Bypass normal scheduling")
+            if st.button("⚡ Force Email Processing", use_container_width=True, help="Force process emails ignoring schedule"):
                 if self.orchestrator:
                     try:
                         self.orchestrator.force_email_processing()
@@ -230,7 +233,8 @@ class Dashboard:
                 else:
                     st.error("Orchestrator not initialized")
             
-            if st.button("🗑️ Clear Processed Emails", use_container_width=True):
+            st.markdown("**Data Management**")
+            if st.button("🗑️ Clear Processed Emails", use_container_width=True, help="Clear email processing cache"):
                 if self.orchestrator:
                     try:
                         self.orchestrator.clear_processed_emails()
@@ -284,28 +288,6 @@ class Dashboard:
                 value=stats["errors"],
                 delta=None
             )
-    
-    def render_activity_chart(self):
-        """Render activity chart (mock data for now)."""
-        st.subheader("📊 Activity Over Time")
-        
-        # Generate mock time series data
-        dates = pd.date_range(start=datetime.now() - timedelta(days=7), end=datetime.now(), freq='H')
-        tasks_created = [max(0, int(3 * (1 + 0.5 * (i % 24 - 12) / 12))) for i in range(len(dates))]
-        
-        df = pd.DataFrame({
-            'Time': dates,
-            'Tasks Created': tasks_created
-        })
-        
-        fig = px.line(df, x='Time', y='Tasks Created', title='Tasks Created Over Time')
-        fig.update_layout(
-            xaxis_title="Time",
-            yaxis_title="Tasks Created",
-            hovermode="x unified"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
     
     def render_agent_status(self):
         """Render agent status section."""
@@ -467,11 +449,12 @@ class Dashboard:
         
         st.divider()
         
-        # Two column layout for charts and status
+        # Two column layout for status
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            self.render_activity_chart()
+            # Empty space or could be used for other content
+            st.empty()
         
         with col2:
             self.render_agent_status()

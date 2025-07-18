@@ -63,7 +63,7 @@ class AgentOrchestrator:
         
         # Task processing queue
         self.task_queue: List[Task] = []
-        self.processing_lock = asyncio.Lock()
+        self.processing_lock = None  # Initialize lazily to avoid event loop issues
         
         # Background task executor
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -76,6 +76,12 @@ class AgentOrchestrator:
             "last_run": None,
             "uptime_start": datetime.now()
         }
+    
+    def _get_processing_lock(self):
+        """Get the processing lock, creating it if necessary."""
+        if self.processing_lock is None:
+            self.processing_lock = asyncio.Lock()
+        return self.processing_lock
     
     async def process_email_to_notion_pipeline(self, email_limit: int = 50, since_days: int = 7) -> None:
         """
@@ -102,7 +108,7 @@ class AgentOrchestrator:
                 return
             
             # Step 2: Create tasks in Notion
-            async with self.processing_lock:
+            async with self._get_processing_lock():
                 page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
                 # Mark emails as processed only for successfully created tasks

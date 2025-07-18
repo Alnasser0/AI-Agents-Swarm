@@ -262,6 +262,60 @@ class EmailAgent(BaseAgent):
         
         return content.strip()
     
+    def _is_automated_email(self, email_msg: EmailMessage) -> bool:
+        """
+        Check if an email is likely automated/system generated.
+        
+        Args:
+            email_msg: Email message to check
+            
+        Returns:
+            True if email appears to be automated, False otherwise
+        """
+        # Check sender for automated indicators
+        sender_lower = email_msg.sender.lower()
+        automated_senders = [
+            'noreply@', 'no-reply@', 'donotreply@', 'do-not-reply@',
+            'security@', 'alerts@', 'notifications@', 'system@',
+            'admin@', 'support@', 'help@', 'info@', 'news@',
+            'updates@', 'marketing@', 'promo@', 'newsletter@',
+            'accounts@', 'billing@', 'payments@', 'services@'
+        ]
+        
+        if any(indicator in sender_lower for indicator in automated_senders):
+            return True
+        
+        # Check subject for automated indicators
+        subject_lower = email_msg.subject.lower()
+        automated_subjects = [
+            'security alert', 'security warning', 'account alert',
+            'password reset', 'login attempt', 'suspicious activity',
+            'verify your account', 'confirmation required', 'activate your',
+            'welcome to', 'thank you for', 'subscription', 'newsletter',
+            'unsubscribe', 'promotion', 'offer', 'deal', 'sale',
+            'invoice', 'receipt', 'payment', 'billing', 'statement',
+            'notification', 'reminder', 'alert', 'update available',
+            'system maintenance', 'service update', 'terms of service'
+        ]
+        
+        if any(indicator in subject_lower for indicator in automated_subjects):
+            return True
+        
+        # Check content for automated indicators
+        content_lower = email_msg.content.lower()
+        automated_content = [
+            'this is an automated message', 'do not reply to this email',
+            'this email was sent automatically', 'unsubscribe',
+            'click here to verify', 'activate your account',
+            'for security reasons', 'suspicious activity detected',
+            'please verify your identity', 'account security'
+        ]
+        
+        if any(indicator in content_lower for indicator in automated_content):
+            return True
+        
+        return False
+    
     async def extract_tasks_from_email(self, email_msg: EmailMessage) -> Optional[Task]:
         """
         Extract task information from an email using AI.
@@ -273,8 +327,13 @@ class EmailAgent(BaseAgent):
             Task object if a task is found, None otherwise
         """
         try:
+            # Pre-filter: Skip automated/system emails
+            if self._is_automated_email(email_msg):
+                self.logger.info(f"Skipping automated email: {email_msg.subject}")
+                return None
+            
             # Combine subject and content for analysis
-            full_text = f"Subject: {email_msg.subject}\n\nContent:\n{email_msg.content}"
+            full_text = f"Subject: {email_msg.subject}\n\nSender: {email_msg.sender}\n\nContent:\n{email_msg.content}"
             
             # Use AI to extract task information
             result = await get_task_extractor().run(full_text)
@@ -282,8 +341,8 @@ class EmailAgent(BaseAgent):
             
             self.logger.info(f"Task extraction result: confidence={extracted.confidence}, is_task={extracted.is_task}")
             
-            # Only create task if confidence is high enough
-            if extracted.is_task and extracted.confidence >= 0.7:  # Lowered threshold
+            # Only create task if confidence is high enough - be very conservative
+            if extracted.is_task and extracted.confidence >= 0.8:  # Raised threshold for human tasks
                 # Parse due date if provided
                 due_date = None
                 if extracted.due_date:
