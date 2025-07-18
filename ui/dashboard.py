@@ -41,32 +41,59 @@ class Dashboard:
         """Initialize the dashboard."""
         self.orchestrator = None
         self.selected_model = get_best_available_model()
+        self.init_success = False
+        self.init_error = None
+        print(f"Dashboard.__init__ called with model: {self.selected_model}")
         self.init_orchestrator()
     
     def init_orchestrator(self):
         """Initialize the agent orchestrator."""
+        # Prevent multiple simultaneous initializations
+        if hasattr(self, '_initializing') and self._initializing:
+            print("Already initializing, skipping...")
+            return
+            
+        self._initializing = True
+        
         try:
+            # Only reinitialize if the model has actually changed
+            if self.orchestrator and hasattr(self.orchestrator, 'model') and self.orchestrator.model == self.selected_model:
+                print(f"Orchestrator already initialized with model {self.selected_model}, skipping...")
+                self._initializing = False
+                return
+                
+            print(f"Initializing orchestrator with model: {self.selected_model}")
             self.orchestrator = AgentOrchestrator(model=self.selected_model)
             self.init_success = True
             self.init_error = None
+            print("Orchestrator initialized successfully")
+            
         except Exception as e:
+            print(f"Error initializing orchestrator: {e}")
             self.init_success = False
             self.init_error = str(e)
             self.orchestrator = None
+            
+        finally:
+            self._initializing = False
     
     def render_model_selector(self):
         """Render the AI model selector in the sidebar."""
         st.sidebar.header("🧠 AI Model Selection")
         
-        available_models = get_available_models()
+        # Cache model availability checks
+        @st.cache_data(ttl=300)  # Cache for 5 minutes
+        def get_model_options():
+            available_models = get_available_models()
+            model_options = []
+            for provider, models in available_models.items():
+                for model in models:
+                    is_available = validate_model_availability(model)
+                    status = "✅" if is_available else "❌"
+                    model_options.append(f"{status} {model}")
+            return model_options
         
-        # Flatten model list for selectbox
-        model_options = []
-        for provider, models in available_models.items():
-            for model in models:
-                is_available = validate_model_availability(model)
-                status = "✅" if is_available else "❌"
-                model_options.append(f"{status} {model}")
+        model_options = get_model_options()
         
         # Find current selection index
         current_index = 0
@@ -79,17 +106,20 @@ class Dashboard:
             "Choose AI Model",
             options=model_options,
             index=current_index,
-            help="Select the AI model to use for task processing"
+            help="Select the AI model to use for task processing",
+            key="model_selector"
         )
         
         # Extract model name from formatted option
         new_model = selected_option.split(" ", 1)[1]  # Remove status emoji
         
-        # Update model if changed
+        # Update model if changed (but don't reinitialize during initial load)
         if new_model != self.selected_model:
             self.selected_model = new_model
-            self.init_orchestrator()  # Reinitialize with new model
-            st.rerun()
+            # Only reinitialize if we're not in the initial load phase
+            if hasattr(self, 'init_success'):
+                self.init_orchestrator()  # Reinitialize with new model
+                st.rerun()
         
         # Show model status
         if validate_model_availability(self.selected_model):
@@ -451,15 +481,20 @@ class Dashboard:
             if st.button("🔄 Refresh", key="refresh_btn"):
                 st.rerun()
         
+        # Remove problematic auto-refresh that causes loops
         # Auto-refresh every 60 seconds (optional)
-        if st.checkbox("Auto-refresh (60s)", key="auto_refresh"):
-            time.sleep(60)
-            st.rerun()
+        # if st.checkbox("Auto-refresh (60s)", key="auto_refresh"):
+        #     time.sleep(60)
+        #     st.rerun()
 
 
 def main():
     """Main entry point for the dashboard."""
-    dashboard = Dashboard()
+    # Use session state to persist dashboard instance
+    if 'dashboard' not in st.session_state:
+        st.session_state.dashboard = Dashboard()
+    
+    dashboard = st.session_state.dashboard
     dashboard.run()
 
 
