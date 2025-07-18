@@ -116,12 +116,13 @@ class EmailAgent(BaseAgent):
             self.log_error(e, "Connecting to email server")
             raise
     
-    def fetch_new_emails(self, since_days: int = 7) -> List[EmailMessage]:
+    def fetch_new_emails(self, since_days: int = 7, limit: int = 50) -> List[EmailMessage]:
         """
         Fetch new emails from the inbox that haven't been processed yet.
         
         Args:
             since_days: Number of days back to check for emails
+            limit: Maximum number of emails to process in one batch
             
         Returns:
             List of EmailMessage objects
@@ -133,7 +134,7 @@ class EmailAgent(BaseAgent):
             since_date = (datetime.now() - timedelta(days=since_days)).strftime('%d-%b-%Y')
             search_criteria = f'(SINCE {since_date})'
             
-            self.logger.info(f"Searching for emails since {since_date}")
+            self.logger.info(f"Searching for emails since {since_date} (limit: {limit})")
             
             status, messages = mail.search(None, search_criteria)
             if status != 'OK':
@@ -142,7 +143,16 @@ class EmailAgent(BaseAgent):
                 return []
             
             email_ids = messages[0].split()
-            self.logger.info(f"Found {len(email_ids)} emails, checking for new ones")
+            
+            # Sort email IDs to process newest first (reverse order)
+            email_ids = email_ids[::-1]
+            
+            # Apply limit to email IDs
+            if len(email_ids) > limit:
+                self.logger.info(f"Found {len(email_ids)} emails, processing latest {limit}")
+                email_ids = email_ids[:limit]
+            else:
+                self.logger.info(f"Found {len(email_ids)} emails, processing all")
             
             emails = []
             processed_count = 0
@@ -311,17 +321,21 @@ class EmailAgent(BaseAgent):
             self.log_error(e, f"Extracting tasks from email {email_msg.message_id}")
             return None
     
-    async def process_new_emails(self) -> List[Task]:
+    async def process_new_emails(self, since_days: int = 7, limit: int = 50) -> List[Task]:
         """
         Process new emails and extract tasks.
         
+        Args:
+            since_days: Number of days back to check for emails
+            limit: Maximum number of emails to process in one batch
+            
         Returns:
             List of extracted tasks
         """
         self.logger.info("Starting email processing")
         
-        # Fetch new emails
-        new_emails = self.fetch_new_emails()
+        # Fetch new emails with limit
+        new_emails = self.fetch_new_emails(since_days=since_days, limit=limit)
         if not new_emails:
             self.logger.info("No new emails to process")
             return []

@@ -203,6 +203,23 @@ class Dashboard:
             # Debug controls
             st.subheader("🐛 Debug")
             
+            # Email processing controls
+            col1, col2 = st.columns(2)
+            with col1:
+                email_limit = st.number_input("Email Limit", min_value=1, max_value=200, value=50, help="Max emails to process")
+            with col2:
+                since_days = st.number_input("Days Back", min_value=1, max_value=30, value=7, help="Days back to check emails")
+            
+            if st.button("📧 Process Custom Batch", use_container_width=True):
+                if self.orchestrator:
+                    try:
+                        self.orchestrator.force_email_processing(email_limit=email_limit, since_days=since_days)
+                        st.success(f"Custom batch processed! ({email_limit} emails, {since_days} days)")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Orchestrator not initialized")
+            
             if st.button("📧 Force Process Emails", use_container_width=True):
                 if self.orchestrator:
                     try:

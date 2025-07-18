@@ -77,7 +77,7 @@ class AgentOrchestrator:
             "uptime_start": datetime.now()
         }
     
-    async def process_email_to_notion_pipeline(self) -> None:
+    async def process_email_to_notion_pipeline(self, email_limit: int = 50, since_days: int = 7) -> None:
         """
         Main pipeline: Email → AI Analysis → Notion Task Creation.
         
@@ -86,12 +86,16 @@ class AgentOrchestrator:
         2. Extracts tasks using AI
         3. Creates tasks in Notion
         4. Updates tracking data
+        
+        Args:
+            email_limit: Maximum number of emails to process
+            since_days: Number of days back to check for emails
         """
         self.logger.info("Starting email-to-notion pipeline")
         
         try:
             # Step 1: Get new emails and extract tasks
-            new_tasks = await self.email_agent.process_new_emails()
+            new_tasks = await self.email_agent.process_new_emails(since_days=since_days, limit=email_limit)
             
             if not new_tasks:
                 self.logger.info("No new tasks to process")
@@ -99,7 +103,7 @@ class AgentOrchestrator:
             
             # Step 2: Create tasks in Notion
             async with self.processing_lock:
-                page_ids = self.notion_agent.batch_create_tasks(new_tasks)
+                page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
                 # Update stats
                 successful_tasks = len([pid for pid in page_ids if pid is not None])
@@ -114,10 +118,16 @@ class AgentOrchestrator:
             self.logger.error(f"Pipeline error: {e}")
             raise
     
-    async def run_single_cycle(self) -> None:
-        """Run a single processing cycle."""
+    async def run_single_cycle(self, email_limit: int = 50, since_days: int = 7) -> None:
+        """
+        Run a single processing cycle.
+        
+        Args:
+            email_limit: Maximum number of emails to process
+            since_days: Number of days back to check for emails
+        """
         try:
-            await self.process_email_to_notion_pipeline()
+            await self.process_email_to_notion_pipeline(email_limit=email_limit, since_days=since_days)
         except Exception as e:
             self.logger.error(f"Cycle error: {e}")
     
@@ -168,10 +178,16 @@ class AgentOrchestrator:
             self.email_agent.clear_processed_emails()
             self.logger.info("Cleared processed emails")
     
-    def force_email_processing(self) -> None:
-        """Force email processing for debugging."""
+    def force_email_processing(self, email_limit: int = 50, since_days: int = 7) -> None:
+        """
+        Force email processing for debugging.
+        
+        Args:
+            email_limit: Maximum number of emails to process
+            since_days: Number of days back to check for emails
+        """
         self.logger.info("Forcing email processing")
-        asyncio.run(self.process_email_to_notion_pipeline())
+        asyncio.run(self.process_email_to_notion_pipeline(email_limit=email_limit, since_days=since_days))
     
     def run_background_mode(self) -> None:
         """Run the orchestrator in background mode with scheduling."""

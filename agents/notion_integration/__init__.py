@@ -107,9 +107,11 @@ class NotionAgent(BaseAgent):
                     ]
                 },
                 "Task type": {
-                    "select": {
-                        "name": "💬 Feature request"  # Default task type
-                    }
+                    "multi_select": [
+                        {
+                            "name": "💬 Feature request"  # Default task type as multi_select
+                        }
+                    ]
                 },
                 "Effort level": {
                     "select": {
@@ -239,7 +241,7 @@ class NotionAgent(BaseAgent):
             self.log_error(e, f"Updating task status: {page_id}")
             return False
     
-    def batch_create_tasks(self, tasks: List[Task]) -> List[Optional[str]]:
+    async def batch_create_tasks(self, tasks: List[Task]) -> List[Optional[str]]:
         """
         Create multiple tasks in Notion efficiently.
         
@@ -257,7 +259,7 @@ class NotionAgent(BaseAgent):
                 page_ids.append(page_id)
                 
                 # Small delay to respect rate limits
-                asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)
                 
             except Exception as e:
                 self.log_error(e, f"Batch creating task: {task.title}")

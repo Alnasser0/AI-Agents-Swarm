@@ -92,7 +92,7 @@ class EmailTaskExtractor(BaseModel):
     title: str = Field(description="Task title extracted from email")
     description: str = Field(description="Detailed description of the task")
     priority: TaskPriority = Field(description="Estimated task priority")
-    due_date: Optional[str] = Field(description="Due date if mentioned (YYYY-MM-DD format)")
+    due_date: Optional[str] = Field(description="Due date if mentioned (YYYY-MM-DD format or natural language like 'March 5th', 'next Friday')")
     tags: List[str] = Field(description="Relevant tags for the task")
     confidence: float = Field(description="Confidence score (0-1) that this is a task", ge=0, le=1)
 
@@ -134,8 +134,13 @@ def create_task_extraction_agent(model: Optional[str] = None) -> Agent[Any, Emai
         - Clear, actionable title
         - Detailed description with context
         - Priority based on urgency words and deadlines
-        - Any mentioned due dates
+        - Any mentioned due dates (use natural language like "March 5th", "next Friday", "by end of week")
         - Relevant tags (project names, people, categories)
+
+        DUE DATE HANDLING:
+        - If you see dates like "March 5th", "next Friday", "by end of week", use them as-is
+        - Don't try to convert to YYYY-MM-DD format unless explicitly given
+        - Natural language dates are acceptable and preferred
 
         CONFIDENCE SCORING:
         - 0.9+: Clear task request with specific action
