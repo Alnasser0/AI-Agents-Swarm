@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Main AI Agents application
+  ai-agents:
+    build: .
+    container_name: ai-agents-swarm
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: python -m agents.main
+    
+  # Streamlit Dashboard
+  dashboard:
+    build: .
+    container_name: ai-agents-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: streamlit run ui/dashboard.py --server.address 0.0.0.0 --server.port 8501
+    depends_on:
+      - ai-agents
+    
+  # FastAPI Server
+  api:
+    build: .
+    container_name: ai-agents-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - ai-agents
+
+networks:
+  default:
+    name: ai-agents-network

@@ -1,0 +1,145 @@
+"""
+Core utilities and base classes for AI Agents Swarm.
+
+This module provides shared functionality across all agents including:
+- Base agent classes
+- Common AI model configurations
+- Logging utilities
+- Error handling patterns
+"""
+
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
+from loguru import logger
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from enum import Enum
+
+
+class TaskPriority(str, Enum):
+    """Task priority levels."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class TaskStatus(str, Enum):
+    """Task status options."""
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class Task(BaseModel):
+    """
+    Universal task model used across all integrations.
+    
+    This provides a common interface for tasks regardless of where
+    they come from (email, Slack, etc.) or where they go (Notion, Jira, etc.).
+    """
+    title: str = Field(description="Task title")
+    description: str = Field(description="Detailed task description")
+    priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Task priority")
+    status: TaskStatus = Field(default=TaskStatus.TODO, description="Task status")
+    source: str = Field(description="Where the task came from (email, slack, etc.)")
+    source_id: Optional[str] = Field(default=None, description="Original source identifier")
+    created_at: datetime = Field(default_factory=datetime.now, description="Task creation timestamp")
+    due_date: Optional[datetime] = Field(default=None, description="Task due date")
+    tags: List[str] = Field(default_factory=list, description="Task tags")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional task metadata")
+
+
+class BaseAgent:
+    """
+    Base agent class providing common functionality.
+    
+    All agents should inherit from this class to ensure consistent
+    behavior and logging across the system.
+    """
+    
+    def __init__(self, name: str, model: str = "anthropic:claude-3-5-sonnet-latest"):
+        """
+        Initialize the base agent.
+        
+        Args:
+            name: Agent name for logging
+            model: AI model to use
+        """
+        self.name = name
+        self.model = model
+        self.logger = logger.bind(agent=name)
+        self.logger.info(f"Initialized {name} agent with model {model}")
+    
+    def log_task_processed(self, task: Task) -> None:
+        """Log when a task is processed."""
+        self.logger.info(f"Processed task: {task.title}", extra={"task_id": task.source_id})
+    
+    def log_error(self, error: Exception, context: str = "") -> None:
+        """Log an error with context."""
+        self.logger.error(f"Error in {self.name}: {error}", extra={"context": context})
+
+
+class EmailTaskExtractor(BaseModel):
+    """
+    Structured output for email task extraction.
+    
+    This model defines what information should be extracted
+    from emails to create proper tasks.
+    """
+    is_task: bool = Field(description="Whether this email contains a task request")
+    title: str = Field(description="Task title extracted from email")
+    description: str = Field(description="Detailed description of the task")
+    priority: TaskPriority = Field(description="Estimated task priority")
+    due_date: Optional[str] = Field(description="Due date if mentioned (YYYY-MM-DD format)")
+    tags: List[str] = Field(description="Relevant tags for the task")
+    confidence: float = Field(description="Confidence score (0-1) that this is a task", ge=0, le=1)
+
+
+def create_task_extraction_agent(model: str = "anthropic:claude-3-5-sonnet-latest") -> Agent:
+    """
+    Create an AI agent specialized in extracting tasks from text.
+    
+    This agent is used across different integrations to identify
+    and extract task information from various sources.
+    
+    Args:
+        model: AI model to use for task extraction
+        
+    Returns:
+        Configured Pydantic AI agent
+    """
+    return Agent(
+        model=model,
+        output_type=EmailTaskExtractor,
+        system_prompt="""
+        You are a task extraction specialist. Your job is to analyze text and determine if it contains a task request.
+
+        TASK INDICATORS:
+        - Words like "create", "add", "make", "do", "complete", "finish", "implement"
+        - Imperative language ("Please do X", "Can you Y", "Need to Z")
+        - Deadline mentions ("by Friday", "before the meeting", "ASAP")
+        - Action items from meetings or emails
+
+        EXTRACT:
+        - Clear, actionable title
+        - Detailed description with context
+        - Priority based on urgency words and deadlines
+        - Any mentioned due dates
+        - Relevant tags (project names, people, categories)
+
+        CONFIDENCE SCORING:
+        - 0.9+: Clear task request with specific action
+        - 0.7-0.9: Likely task but might need clarification
+        - 0.5-0.7: Possible task but ambiguous
+        - 0.3-0.5: Unlikely to be a task
+        - 0.3-: Definitely not a task
+
+        Be conservative - only extract tasks you're confident about.
+        """
+    )
+
+
+# Global task extraction agent instance
+task_extractor = create_task_extraction_agent()
