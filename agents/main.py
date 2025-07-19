@@ -206,13 +206,17 @@ class AgentOrchestrator:
         """Get current system statistics."""
         uptime = datetime.now() - self.stats["uptime_start"]
         
+        # Get real-time email status
+        realtime_status = self.get_realtime_status()
+        
         return {
             **self.stats,
             "uptime_seconds": uptime.total_seconds(),
             "uptime_hours": uptime.total_seconds() / 3600,
             "queue_size": len(self.task_queue),
             "email_agent_status": "active",
-            "notion_agent_status": "active"
+            "notion_agent_status": "active",
+            "realtime_email": realtime_status  # Add real-time status
         }
     
     def run_background_mode(self) -> None:

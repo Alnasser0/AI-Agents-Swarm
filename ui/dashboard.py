@@ -151,9 +151,8 @@ class Dashboard:
             st.header("🎛️ Control Panel")
             
             # Manual trigger section
-            st.subheader("**Automated Processing** - Uses default settings")
-            st.caption("📧 Process Emails: Default (50 emails, 7 days back) | 🔄 Full Pipeline: Complete email-to-notion workflow")
-            st.info("ℹ️ **Automatic Duplicate Prevention**: System automatically detects and prevents duplicate tasks in Notion")
+            st.subheader("**Automated Processing**")
+            st.caption("📧 Process Emails: 50 emails from last 7 days | 🔄 Full Pipeline: Run all tasks")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -221,8 +220,8 @@ class Dashboard:
                         st.error(f"Error: {e}")
                 else:
                     st.error("Orchestrator not initialized")
-            
-            st.markdown("**Force Operations** - Bypass normal scheduling")
+
+            st.markdown("**Force Operations** - Bypass normal scheduling, process 50 emails, 7 days back")
             if st.button("⚡ Force Email Processing", use_container_width=True, help="Force process emails ignoring schedule"):
                 if self.orchestrator:
                     try:
