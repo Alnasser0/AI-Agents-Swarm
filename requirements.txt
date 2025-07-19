@@ -1,6 +1,8 @@
 # Core AI Libraries
-pydantic-ai
-google-genai
+pydantic-ai==0.4.3
+google-genai==1.26.0
+anthropic==0.57.1
+openai==1.97.0
 
 # Web Framework & UI
 fastapi==0.115.5
