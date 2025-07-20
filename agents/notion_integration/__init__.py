@@ -391,3 +391,77 @@ class NotionAgent(BaseAgent):
         except Exception as e:
             self.log_error(e, "Validating database setup")
             return False
+
+    def get_recent_tasks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent tasks from Notion database."""
+        try:
+            # Query the database for recent tasks, sorted by creation time
+            # Use Notion's built-in created_time instead of "Created time" property
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                sorts=[
+                    {
+                        "timestamp": "created_time",
+                        "direction": "descending"
+                    }
+                ],
+                page_size=limit
+            )
+            
+            tasks = []
+            results = response.get("results", [])
+            
+            for result in results:
+                try:
+                    properties = result.get("properties", {})
+                    
+                    # Extract task information using proper Notion property access
+                    task = {
+                        "id": result.get("id", ""),
+                        "title": self._extract_title(properties.get("Task name", {})),
+                        "source": self._extract_rich_text(properties.get("Source", {})),
+                        "priority": self._extract_select(properties.get("Priority", {})),
+                        "status": self._extract_select(properties.get("Status", {})),
+                        "from": self._extract_rich_text(properties.get("From", {})),
+                        "created": self._extract_date(result.get("created_time", ""))
+                    }
+                    tasks.append(task)
+                except Exception as e:
+                    self.logger.warning(f"Error parsing task: {e}")
+                    continue
+            
+            return tasks
+            
+        except Exception as e:
+            self.log_error(e, "Getting recent tasks")
+            return []
+    
+    def _extract_title(self, title_prop: Dict[str, Any]) -> str:
+        """Extract title from Notion title property."""
+        try:
+            return title_prop.get("title", [{}])[0].get("plain_text", "Untitled")
+        except (IndexError, KeyError):
+            return "Untitled"
+    
+    def _extract_rich_text(self, text_prop: Dict[str, Any]) -> str:
+        """Extract text from Notion rich text property."""
+        try:
+            return text_prop.get("rich_text", [{}])[0].get("plain_text", "")
+        except (IndexError, KeyError):
+            return ""
+    
+    def _extract_select(self, select_prop: Dict[str, Any]) -> str:
+        """Extract value from Notion select property."""
+        try:
+            return select_prop.get("select", {}).get("name", "")
+        except KeyError:
+            return ""
+    
+    def _extract_date(self, date_value: str) -> str:
+        """Extract and format date string."""
+        try:
+            if date_value:
+                return date_value
+            return datetime.now().isoformat()
+        except:
+            return datetime.now().isoformat()

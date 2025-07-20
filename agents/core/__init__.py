@@ -69,7 +69,7 @@ class BaseAgent:
         """
         self.name = name
         self.model = model or get_best_available_model()
-        self.logger = logger.bind(agent=name)
+        self.logger = logger.bind(component=name)
         self.logger.info(f"Initialized {name} agent with model {self.model}")
     
     def log_task_processed(self, task: Task) -> None:

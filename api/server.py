@@ -116,8 +116,18 @@ async def root():
         "endpoints": {
             "health": "/health",
             "docs": "/docs",
-            "tasks": "/tasks",
-            "agents": "/agents",
+            "stats": "/api/stats",
+            "agents": "/api/agents/status", 
+            "tasks": "/api/tasks/recent",
+            "logs": "/api/logs",
+            "realtime_status": "/api/realtime/status",
+            "config": "/api/config",
+            "triggers": {
+                "email_processing": "/api/trigger/email-processing",
+                "full_pipeline": "/api/trigger/full-pipeline",
+                "realtime_start": "/api/realtime/start",
+                "realtime_stop": "/api/realtime/stop"
+            },
             "webhook": "/webhook/email"
         }
     }
@@ -160,6 +170,283 @@ async def get_system_stats():
     )
 
 
+@app.get("/api/stats")
+async def get_api_stats():
+    """Get system statistics (API endpoint for dashboard)."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        stats = orchestrator.get_system_stats()
+        
+        return {
+            "emails_processed": stats.get("emails_processed", 0),
+            "tasks_processed": stats.get("tasks_processed", 0),
+            "processed_emails_count": stats.get("processed_emails_count", 0),
+            "uptime_hours": stats.get("uptime_hours", 0.0),
+            "errors": stats.get("errors", 0),
+            "realtime_email": {
+                "idle_supported": stats.get("idle_supported", True),
+                "idle_running": stats.get("idle_running", False),
+                "idle_thread_alive": stats.get("idle_thread_alive", False),
+                "status": stats.get("realtime_status", "inactive")
+            }
+        }
+    except Exception as e:
+        # Return default stats if orchestrator fails
+        return {
+            "emails_processed": 0,
+            "tasks_processed": 0,
+            "processed_emails_count": 0,
+            "uptime_hours": 0.0,
+            "errors": 0,
+            "realtime_email": {
+                "idle_supported": True,
+                "idle_running": False,
+                "idle_thread_alive": False,
+                "status": "inactive"
+            }
+        }
+
+
+@app.get("/api/agents/status")
+async def get_agents_status():
+    """Get status of all agents (API endpoint for dashboard)."""
+    if orchestrator is None:
+        return []
+    
+    try:
+        agents = []
+        
+        # Email agent status
+        if hasattr(orchestrator, 'email_agent'):
+            from config.settings import settings
+            agents.append({
+                "name": "Email Agent",
+                "status": "online" if orchestrator.email_agent else "offline",
+                "provider": getattr(settings, 'email_provider', 'IMAP'),
+                "account": getattr(settings, 'email_address', 'user@example.com'),
+                "interval": f"{getattr(settings, 'email_check_interval', 5)} minutes"
+            })
+        
+        # Notion agent status
+        if hasattr(orchestrator, 'notion_agent'):
+            try:
+                db_valid = orchestrator.notion_agent.validate_database_setup()
+                schema_status = "✅ Valid" if db_valid else "❌ Invalid"
+            except:
+                schema_status = "❌ Invalid"
+                
+            agents.append({
+                "name": "Notion Agent",
+                "status": "online" if orchestrator.notion_agent else "offline",
+                "database": "tasks...",
+                "schema": schema_status
+            })
+        
+        return agents
+    except Exception as e:
+        # Return default agents if something fails
+        return [
+            {
+                "name": "Email Agent",
+                "status": "offline",
+                "provider": "IMAP",
+                "account": "user@example.com",
+                "interval": "5 minutes"
+            },
+            {
+                "name": "Notion Agent",
+                "status": "offline",
+                "database": "tasks...",
+                "schema": "❌ Invalid"
+            }
+        ]
+
+
+@app.get("/api/tasks/recent")
+async def get_api_recent_tasks(limit: int = 10):
+    """Get recent tasks (API endpoint for dashboard)."""
+    try:
+        if orchestrator is None:
+            return []
+            
+        # Get real tasks from Notion database
+        if hasattr(orchestrator, 'notion_agent') and orchestrator.notion_agent:
+            # Query recent tasks from Notion
+            recent_tasks = orchestrator.notion_agent.get_recent_tasks(limit=limit)
+            return recent_tasks
+        else:
+            # Return empty list if no real tasks yet
+            return []
+        
+    except Exception as e:
+        print(f"Error getting tasks: {e}")
+        return []
+
+
+@app.get("/api/logs")
+async def get_api_logs(limit: int = 15):
+    """Get system logs (API endpoint for dashboard)."""
+    if orchestrator is None:
+        # Return empty logs if orchestrator is not initialized
+        return []
+    
+    try:
+        # Get real-time logs from orchestrator
+        logs = orchestrator.get_recent_logs(limit)
+        
+        # If no logs yet, add a default entry
+        if not logs:
+            from datetime import datetime
+            logs = [{
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "component": "System",
+                "message": "System ready - waiting for events"
+            }]
+        
+        return logs
+        
+    except Exception as e:
+        # Fallback to basic log if there's an error
+        from datetime import datetime
+        return [{
+            "timestamp": datetime.now().isoformat(),
+            "level": "ERROR",
+            "component": "API",
+            "message": f"Error retrieving logs: {e}"
+        }]
+
+
+@app.get("/api/realtime/status")
+async def get_realtime_status():
+    """Get real-time status (API endpoint for dashboard)."""
+    if orchestrator is None:
+        return {
+            "idle_supported": False,
+            "idle_running": False,
+            "idle_thread_alive": False,
+            "status": "inactive",
+            "last_check": None
+        }
+    
+    try:
+        stats = orchestrator.get_system_stats()
+        return {
+            "idle_supported": stats.get("idle_supported", True),
+            "idle_running": stats.get("idle_running", False),
+            "idle_thread_alive": stats.get("idle_thread_alive", False),
+            "status": stats.get("realtime_status", "inactive"),
+            "last_check": stats.get("last_realtime_check")
+        }
+    except Exception as e:
+        return {
+            "idle_supported": False,
+            "idle_running": False,
+            "idle_thread_alive": False,
+            "status": "error",
+            "last_check": None
+        }
+
+
+@app.get("/api/config")
+async def get_system_configuration():
+    """Get system configuration (API endpoint for dashboard)."""
+    from config.settings import settings
+    
+    return {
+        "email_provider": settings.email_provider,
+        "email_address": settings.email_address,
+        "email_check_interval": settings.email_check_interval,
+        "enable_realtime_email": settings.enable_realtime_email,
+        "default_model": settings.default_model,
+        "timezone": settings.timezone,
+        "api_host": settings.api_host,
+        "api_port": settings.api_port
+    }
+
+
+@app.post("/api/trigger/email-processing")
+async def trigger_email_processing_api(background_tasks: BackgroundTasks):
+    """Trigger email processing manually (API endpoint for dashboard)."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        # Run email processing in background
+        background_tasks.add_task(orchestrator.run_single_cycle)
+        
+        return {
+            "success": True,
+            "message": "Email processing triggered successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to trigger email processing: {e}"
+        }
+
+
+@app.post("/api/trigger/full-pipeline")
+async def trigger_full_pipeline_api(background_tasks: BackgroundTasks):
+    """Trigger full pipeline manually (API endpoint for dashboard)."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        # Run full pipeline in background
+        background_tasks.add_task(orchestrator.process_email_to_notion_pipeline, 10, 1)
+        
+        return {
+            "success": True,
+            "message": "Full pipeline triggered successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to trigger full pipeline: {e}"
+        }
+
+
+@app.post("/api/realtime/start")
+async def start_realtime_monitoring_api():
+    """Start real-time monitoring (API endpoint for dashboard)."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        orchestrator.start_realtime_monitoring()
+        return {
+            "success": True,
+            "message": "Real-time monitoring started"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to start real-time monitoring: {e}"
+        }
+
+
+@app.post("/api/realtime/stop")
+async def stop_realtime_monitoring_api():
+    """Stop real-time monitoring (API endpoint for dashboard)."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        orchestrator.stop_realtime_monitoring()
+        return {
+            "success": True,
+            "message": "Real-time monitoring stopped"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to stop real-time monitoring: {e}"
+        }
+
+
 @app.post("/trigger/email", response_model=TriggerResponse)
 async def trigger_email_processing(background_tasks: BackgroundTasks):
     """Trigger email processing manually."""
@@ -199,6 +486,79 @@ async def trigger_full_pipeline(background_tasks: BackgroundTasks):
         return TriggerResponse(
             success=False,
             message=f"Failed to trigger pipeline: {e}"
+        )
+
+
+class SyncRequest(BaseModel):
+    """API model for sync past emails request."""
+    days: int = 7
+    limit: int = 50
+
+
+@app.post("/api/management/sync-past-emails", response_model=TriggerResponse)
+async def sync_past_emails(
+    request: SyncRequest,
+    background_tasks: BackgroundTasks
+):
+    """Sync past emails by processing historical emails."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    # Validate parameters
+    if request.days < 1 or request.days > 365:
+        return TriggerResponse(
+            success=False,
+            message="Days must be between 1 and 365"
+        )
+    
+    if request.limit < 1 or request.limit > 1000:
+        return TriggerResponse(
+            success=False,
+            message="Limit must be between 1 and 1000"
+        )
+    
+    try:
+        # Run historical email processing in background
+        background_tasks.add_task(
+            orchestrator.process_email_to_notion_pipeline,
+            email_limit=request.limit,
+            since_days=request.days
+        )
+        
+        return TriggerResponse(
+            success=True,
+            message=f"Historical email sync triggered for last {request.days} days (limit: {request.limit})"
+        )
+    except Exception as e:
+        return TriggerResponse(
+            success=False,
+            message=f"Failed to sync past emails: {e}"
+        )
+
+
+@app.post("/api/management/clear-data", response_model=TriggerResponse)
+async def clear_processed_data():
+    """Clear all processed email data and cache."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        # Clear processed emails cache
+        orchestrator.email_agent.clear_processed_emails()
+        
+        # Reset stats
+        orchestrator.stats["emails_processed"] = 0
+        orchestrator.stats["tasks_processed"] = 0
+        orchestrator.stats["errors"] = 0
+        
+        return TriggerResponse(
+            success=True,
+            message="All processed data cleared successfully"
+        )
+    except Exception as e:
+        return TriggerResponse(
+            success=False,
+            message=f"Failed to clear data: {e}"
         )
 
 
@@ -318,11 +678,10 @@ async def email_webhook(data: dict, background_tasks: BackgroundTasks):
 async def _process_webhook_email(webhook_data: dict):
     """Process email webhook in background."""
     try:
-        if orchestrator and hasattr(orchestrator, 'realtime_processor'):
-            orchestrator.realtime_processor.process_webhook_notification(webhook_data)
-        else:
-            # Fallback to immediate email processing
+        if orchestrator:
             await orchestrator.process_email_to_notion_pipeline(email_limit=10, since_days=1)
+        else:
+            print("Orchestrator not available for webhook processing")
             
     except Exception as e:
         print(f"Background webhook processing error: {e}")

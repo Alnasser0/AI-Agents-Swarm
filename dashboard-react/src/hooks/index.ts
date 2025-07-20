@@ -1,0 +1,323 @@
+/**
+ * Custom hooks for dashboard data management
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  getSystemStats,
+  getAgentStatus,
+  getRecentTasks,
+  getSystemLogs,
+  getHealthStatus,
+  pingBackend,
+  generateMockStats,
+  generateMockTasks,
+  generateMockLogs,
+} from '@/lib/api';
+import type {
+  SystemStats,
+  AgentStatus,
+  Task,
+  LogEntry,
+  HealthResponse,
+  UseSystemStats,
+  UseRealtimeData,
+} from '@/types';
+
+/**
+ * Hook for fetching system statistics
+ */
+export function useSystemStats(refreshInterval: number = 30000): UseSystemStats {
+  const [data, setData] = useState<SystemStats | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const fetchStats = useCallback(async () => {
+    try {
+      setError(null);
+      const stats = await getSystemStats();
+      setData(stats);
+      return stats;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown error');
+      setError(error);
+      
+      // Fallback to mock data in development or when API is unavailable
+      console.warn('API unavailable, using mock data:', error.message);
+      const mockStats = generateMockStats();
+      setData(mockStats);
+      return mockStats;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const mutate = useCallback(() => {
+    setIsLoading(true);
+    return fetchStats();
+  }, [fetchStats]);
+
+  useEffect(() => {
+    fetchStats();
+
+    if (refreshInterval > 0) {
+      const interval = setInterval(fetchStats, refreshInterval);
+      return () => clearInterval(interval);
+    }
+  }, [fetchStats, refreshInterval]);
+
+  return { data, error, isLoading, mutate };
+}
+
+/**
+ * Hook for managing real-time dashboard data
+ */
+export function useRealtimeData(
+  autoRefresh: boolean = true,
+  refreshInterval: number = 30000
+): UseRealtimeData {
+  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [agents, setAgents] = useState<AgentStatus[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef(false);
+
+  const fetchAllData = useCallback(async () => {
+    try {
+      setError(null);
+      
+      // Check if backend is reachable
+      const backendReachable = await pingBackend();
+      setIsConnected(backendReachable);
+      
+      if (backendReachable) {
+        // Fetch real data from API
+        const [statsResult, agentsResult, tasksResult, logsResult] = await Promise.allSettled([
+          getSystemStats(),
+          getAgentStatus(),
+          getRecentTasks(10),
+          getSystemLogs(15),
+        ]);
+
+        if (statsResult.status === 'fulfilled') {
+          setStats(statsResult.value);
+        }
+        
+        if (agentsResult.status === 'fulfilled') {
+          setAgents(agentsResult.value);
+        }
+        
+        if (tasksResult.status === 'fulfilled') {
+          setTasks(tasksResult.value);
+        }
+        
+        if (logsResult.status === 'fulfilled') {
+          setLogs(logsResult.value);
+        }
+      } else {
+        // Use mock data when backend is not available
+        setStats(generateMockStats());
+        setAgents([
+          {
+            name: 'Email Agent',
+            status: 'offline',
+            provider: 'IMAP',
+            account: 'user@example.com',
+            interval: '5 minutes',
+          },
+          {
+            name: 'Notion Agent',
+            status: 'offline',
+            database: 'tasks...',
+            schema: '❌ Invalid',
+          },
+        ]);
+        setTasks(generateMockTasks());
+        setLogs(generateMockLogs());
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      console.error('Error fetching dashboard data:', err);
+      
+      // Still provide mock data on error
+      setStats(generateMockStats());
+      setTasks(generateMockTasks());
+      setLogs(generateMockLogs());
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (isPollingRef.current) return;
+    
+    isPollingRef.current = true;
+    fetchAllData(); // Initial fetch
+    
+    if (refreshInterval > 0) {
+      intervalRef.current = setInterval(fetchAllData, refreshInterval);
+    }
+  }, [fetchAllData, refreshInterval]);
+
+  const stopPolling = useCallback(() => {
+    isPollingRef.current = false;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  // Auto-start polling based on autoRefresh setting
+  useEffect(() => {
+    if (autoRefresh) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+
+    // Cleanup on unmount
+    return () => {
+      stopPolling();
+    };
+  }, [autoRefresh, startPolling, stopPolling]);
+
+  return {
+    stats,
+    agents,
+    tasks,
+    logs,
+    isConnected,
+    error,
+    startPolling,
+    stopPolling,
+  };
+}
+
+/**
+ * Hook for checking system health
+ */
+export function useHealthCheck(refreshInterval: number = 60000) {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const checkHealth = useCallback(async () => {
+    try {
+      setError(null);
+      const healthData = await getHealthStatus();
+      setHealth(healthData);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Health check failed');
+      setError(error);
+      
+      // Mock health data when API is unavailable
+      setHealth({
+        status: 'unhealthy',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        services: {
+          email: false,
+          notion: false,
+          ai_model: false,
+        },
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkHealth();
+    
+    if (refreshInterval > 0) {
+      const interval = setInterval(checkHealth, refreshInterval);
+      return () => clearInterval(interval);
+    }
+  }, [checkHealth, refreshInterval]);
+
+  return { health, isLoading, error, refetch: checkHealth };
+}
+
+/**
+ * Hook for managing auto-refresh state
+ */
+export function useAutoRefresh(defaultEnabled: boolean = true) {
+  const [isEnabled, setIsEnabled] = useState(defaultEnabled);
+  const [interval, setInterval] = useState(30000); // 30 seconds default
+
+  const toggle = useCallback(() => {
+    setIsEnabled(prev => !prev);
+  }, []);
+
+  const enable = useCallback(() => {
+    setIsEnabled(true);
+  }, []);
+
+  const disable = useCallback(() => {
+    setIsEnabled(false);
+  }, []);
+
+  const setRefreshInterval = useCallback((newInterval: number) => {
+    setInterval(newInterval);
+  }, []);
+
+  return {
+    isEnabled,
+    interval,
+    toggle,
+    enable,
+    disable,
+    setRefreshInterval,
+  };
+}
+
+/**
+ * Hook for managing dashboard actions
+ */
+export function useDashboardActions() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const executeAction = useCallback(async (
+    action: () => Promise<any>,
+    successMessage?: string
+  ) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      setSuccess(null);
+      
+      await action();
+      
+      if (successMessage) {
+        setSuccess(successMessage);
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccess(null), 3000);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Action failed';
+      setError(errorMessage);
+      // Clear error message after 5 seconds
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setError(null);
+    setSuccess(null);
+  }, []);
+
+  return {
+    isLoading,
+    error,
+    success,
+    executeAction,
+    clearMessages,
+  };
+}

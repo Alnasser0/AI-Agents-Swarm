@@ -318,7 +318,7 @@ class EmailAgent(BaseAgent):
     
     async def extract_tasks_from_email(self, email_msg: EmailMessage) -> Optional[Task]:
         """
-        Extract task information from an email using AI.
+        Extract task information from an email using AI with enhanced duplicate prevention.
         
         Args:
             email_msg: Email message to analyze
@@ -327,10 +327,15 @@ class EmailAgent(BaseAgent):
             Task object if a task is found, None otherwise
         """
         try:
+            # First check: Skip if email is already processed
+            if email_msg.message_id in self.processed_emails:
+                self.logger.debug(f"Email already processed, skipping: {email_msg.message_id}")
+                return None
+            
             # Pre-filter: Skip automated/system emails
             if self._is_automated_email(email_msg):
                 self.logger.info(f"Skipping automated email: {email_msg.subject}")
-                return None
+                return None  # Don't mark as processed yet - let process_new_emails handle it
             
             # Combine subject and content for analysis
             full_text = f"Subject: {email_msg.subject}\n\nSender: {email_msg.sender}\n\nContent:\n{email_msg.content}"
@@ -363,7 +368,8 @@ class EmailAgent(BaseAgent):
                     "sender": email_msg.sender,
                     "subject": email_msg.subject,
                     "confidence": extracted.confidence,
-                    "email_date": email_msg.date.isoformat()
+                    "email_date": email_msg.date.isoformat(),
+                    "message_id": email_msg.message_id  # Store for tracking
                 }
                 
                 # Add raw due date if parsing failed
@@ -375,23 +381,27 @@ class EmailAgent(BaseAgent):
                     description=extracted.description,
                     priority=extracted.priority,
                     source="email",
-                    source_id=email_msg.message_id,
+                    source_id=email_msg.message_id,  # Use message_id for duplicate detection
                     due_date=due_date,
                     tags=extracted.tags,
                     metadata=metadata
                 )
                 
+                # Don't mark as processed here - let the main pipeline do it after successful Notion creation
                 self.log_task_processed(task)
                 return task
             else:
                 self.logger.info(f"Email not identified as task: confidence={extracted.confidence}, is_task={extracted.is_task}")
                 self.logger.info(f"Subject: {email_msg.subject}")
                 self.logger.info(f"Content preview: {email_msg.content[:200]}...")
+                
+                # Return None but don't mark as processed yet - let process_new_emails handle it
             
             return None
             
         except Exception as e:
             self.log_error(e, f"Extracting tasks from email {email_msg.message_id}")
+            # Don't mark as processed if there was an error - allow retry
             return None
     
     async def process_new_emails(self, since_days: int = 7, limit: int = 50) -> List[Task]:

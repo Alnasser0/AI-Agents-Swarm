@@ -141,11 +141,13 @@ python -m pytest --cov=agents
 
 ## 🌐 Web Interface
 
-Access the Streamlit dashboard:
+Access the React dashboard:
 
 ```bash
-streamlit run ui/dashboard.py
+python start.py
 ```
+
+This will automatically start the React dashboard at http://localhost:3000
 
 ## 📚 Documentation
 

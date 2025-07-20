@@ -91,6 +91,44 @@ class AgentOrchestrator:
             "last_run": None,
             "uptime_start": datetime.now()
         }
+        
+        # Real-time log buffer for dashboard
+        self.log_buffer = []
+        self.max_log_entries = 50
+        
+        # Add initial system startup log
+        self.add_log_entry("INFO", "System", "AI Agents Swarm initialized")
+    
+    def add_log_entry(self, level: str, component: str, message: str):
+        """Add a log entry to the real-time buffer."""
+        try:
+            # Initialize log_buffer if it doesn't exist
+            if not hasattr(self, 'log_buffer'):
+                self.log_buffer = []
+            if not hasattr(self, 'max_log_entries'):
+                self.max_log_entries = 50
+            
+            entry = {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "component": component,
+                "message": message
+            }
+            
+            self.log_buffer.append(entry)
+            
+            # Keep only the latest entries
+            if len(self.log_buffer) > self.max_log_entries:
+                self.log_buffer = self.log_buffer[-self.max_log_entries:]
+        except Exception as e:
+            # Fallback - just log to console if buffer fails
+            print(f"[{level}] {component}: {message}")
+    
+    def get_recent_logs(self, limit: int = 15) -> List[dict]:
+        """Get recent log entries for the dashboard."""
+        if not hasattr(self, 'log_buffer'):
+            return []
+        return self.log_buffer[-limit:] if self.log_buffer else []
     
     def _get_processing_lock(self):
         """Get the processing lock, creating it if necessary."""
@@ -101,10 +139,12 @@ class AgentOrchestrator:
     async def _realtime_email_callback(self):
         """Callback for real-time email processing."""
         try:
+            self.add_log_entry("INFO", "RealTime", "New email detected via IMAP IDLE")
             self.logger.info("Processing real-time email notification")
             # Process emails immediately with smaller batch for speed
             await self.process_email_to_notion_pipeline(email_limit=10, since_days=1)
         except Exception as e:
+            self.add_log_entry("ERROR", "RealTime", f"Real-time processing error: {str(e)}")
             self.logger.error(f"Real-time email processing error: {e}")
     
     def _start_realtime_delayed(self):
@@ -113,7 +153,9 @@ class AgentOrchestrator:
         time.sleep(2)  # Wait for initialization to complete
         try:
             self.start_realtime_monitoring()
+            self.add_log_entry("INFO", "RealTime", "IMAP IDLE monitoring started")
         except Exception as e:
+            self.add_log_entry("ERROR", "RealTime", f"Failed to start real-time monitoring: {str(e)}")
             self.logger.error(f"Failed to auto-start real-time monitoring: {e}")
     
     async def process_email_to_notion_pipeline(self, email_limit: int = 50, since_days: int = 7) -> None:
@@ -130,27 +172,48 @@ class AgentOrchestrator:
         
         try:
             # Step 1: Get new emails and extract tasks
+            self.add_log_entry("INFO", "Pipeline", "Starting email processing")
             new_tasks = await self.email_agent.process_new_emails(since_days=since_days, limit=email_limit)
             
             if not new_tasks:
                 self.logger.info("No new tasks to process")
+                self.add_log_entry("INFO", "Pipeline", "No new emails to process")
                 return
+            
+            self.add_log_entry("INFO", "Email", f"Found {len(new_tasks)} new tasks from emails")
             
             # Step 2: Create tasks in Notion
             processing_lock = self._get_processing_lock()
             async with processing_lock:
                 page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
+                # Step 3: Mark successfully created tasks as processed to prevent duplicates
+                successful_tasks = []
+                for i, (task, page_id) in enumerate(zip(new_tasks, page_ids)):
+                    if page_id is not None:  # Task was successfully created
+                        successful_tasks.append(task)
+                        # Mark the source email as processed
+                        if task.source_id:
+                            self.email_agent.processed_emails.add(task.source_id)
+                
+                # Save the updated processed emails
+                if successful_tasks:
+                    self.email_agent._save_processed_emails()
+                    self.logger.info(f"Marked {len(successful_tasks)} emails as processed")
+                
                 # Update stats
-                successful_tasks = len([pid for pid in page_ids if pid is not None])
-                self.stats["tasks_processed"] += successful_tasks
+                self.stats["tasks_processed"] += len(successful_tasks)
                 self.stats["emails_processed"] += len(new_tasks)
                 self.stats["last_run"] = datetime.now()
                 
-                self.logger.info(f"Pipeline complete: {successful_tasks}/{len(new_tasks)} tasks created")
+                self.add_log_entry("INFO", "Notion", f"Created {len(successful_tasks)} tasks in Notion")
+                self.add_log_entry("INFO", "Pipeline", f"Pipeline complete: {len(successful_tasks)}/{len(new_tasks)} tasks created")
+                
+                self.logger.info(f"Pipeline complete: {len(successful_tasks)}/{len(new_tasks)} tasks created")
                 
         except Exception as e:
             self.stats["errors"] += 1
+            self.add_log_entry("ERROR", "Pipeline", f"Pipeline error: {str(e)}")
             self.logger.error(f"Pipeline error: {e}")
             raise
     
@@ -211,6 +274,7 @@ class AgentOrchestrator:
         
         return {
             **self.stats,
+            "processed_emails_count": self.email_agent.get_processed_email_count() if self.email_agent else 0,
             "uptime_seconds": uptime.total_seconds(),
             "uptime_hours": uptime.total_seconds() / 3600,
             "queue_size": len(self.task_queue),
@@ -301,6 +365,11 @@ class AgentOrchestrator:
         await self.run_single_cycle(email_limit=email_limit, since_days=since_days)
 
 
+def format_log_record(record):
+    """Custom formatter that safely handles missing component field."""
+    component = record["extra"].get("component", "main")
+    return f"{record['time']} | {record['level']} | {component} | {record['message']}\n"
+
 def main():
     """Main entry point for the application."""
     # Configure logging
@@ -309,10 +378,10 @@ def main():
         rotation="1 day",
         retention="30 days",
         level=settings.log_level,
-        format="{time} | {level} | {extra[component]} | {message}"
+        format=format_log_record
     )
     
-    logger.info("Starting AI Agents Swarm")
+    logger.bind(component="main").info("Starting AI Agents Swarm")
     
     try:
         orchestrator = AgentOrchestrator()
