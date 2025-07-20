@@ -3,7 +3,7 @@ import { ReactNode } from 'react';
 // Core API types
 export interface SystemStats {
   emails_processed: number;
-  tasks_processed: number;
+  tasks_created: number;  // Changed from tasks_processed to match backend
   processed_emails_count: number;
   uptime_hours: number;
   errors: number;

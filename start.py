@@ -72,6 +72,10 @@ class SystemLauncher:
         self.react_dashboard_path = self.project_root / "dashboard-react"
         self.processes: List[Tuple[str, subprocess.Popen]] = []
         
+        # Port tracking
+        self.api_port = 8000  # Default port
+        self.dashboard_port = 3000  # Default port
+        
         # Kill any existing processes on our ports before starting
         self.cleanup_existing_processes()
         
@@ -261,23 +265,86 @@ class SystemLauncher:
             logger.warning(f"[WARNING] Port {port} is used by: {process_info}")
             logger.warning(f"[WARNING] This process is not recognized as part of our app.")
             
-            response = input(f"Do you want to kill this process to free port {port}? (y/N): ").strip().lower()
-            
-            if response in ['y', 'yes']:
-                try:
-                    if IS_WINDOWS:
-                        subprocess.run(f'taskkill /F /PID {pid}', shell=True, check=False)
-                    else:
-                        subprocess.run(f'kill -9 {pid}', shell=True, check=False)
-                    logger.info(f"[KILL] User authorized killing process {pid}")
-                except Exception as e:
-                    logger.error(f"[ERROR] Failed to kill process {pid}: {e}")
-            else:
-                logger.info(f"[SKIP] Process {pid} on port {port} left running (user choice)")
-                logger.warning(f"[WARNING] Port {port} conflict may cause startup issues")
+            while True:
+                response = input(f"Do you want to kill this process to free port {port}? (y/N): ").strip().lower()
+                
+                if response in ['y', 'yes']:
+                    try:
+                        if IS_WINDOWS:
+                            result = subprocess.run(f'taskkill /F /PID {pid}', shell=True, capture_output=True, text=True)
+                            if result.returncode == 0:
+                                logger.info(f"[KILL] Successfully killed process {pid}")
+                                # Wait a moment for the port to be freed
+                                time.sleep(2)
+                                # Verify port is actually freed
+                                if not self.is_port_in_use(port):
+                                    logger.info(f"[OK] Port {port} is now free")
+                                    return
+                                else:
+                                    logger.warning(f"[WARNING] Port {port} still appears to be in use")
+                            else:
+                                logger.error(f"[ERROR] Failed to kill process {pid}: {result.stderr}")
+                        else:
+                            result = subprocess.run(f'kill -9 {pid}', shell=True, capture_output=True, text=True)
+                            if result.returncode == 0:
+                                logger.info(f"[KILL] Successfully killed process {pid}")
+                                time.sleep(2)
+                                if not self.is_port_in_use(port):
+                                    logger.info(f"[OK] Port {port} is now free")
+                                    return
+                                else:
+                                    logger.warning(f"[WARNING] Port {port} still appears to be in use")
+                            else:
+                                logger.error(f"[ERROR] Failed to kill process {pid}: {result.stderr}")
+                        
+                        logger.info(f"[KILL] User authorized killing process {pid}")
+                        break
+                    except Exception as e:
+                        logger.error(f"[ERROR] Failed to kill process {pid}: {e}")
+                        break
+                elif response in ['n', 'no', '']:
+                    logger.info(f"[SKIP] Process {pid} on port {port} left running (user choice)")
+                    logger.warning(f"[WARNING] Port {port} conflict may cause startup issues")
+                    break
+                else:
+                    print("Please enter 'y' for yes or 'n' for no (or just press Enter for no)")
+                    continue
                 
         except Exception as e:
             logger.error(f"[ERROR] Could not handle unknown process {pid}: {e}")
+    
+    def is_port_in_use(self, port: int) -> bool:
+        """Check if a port is currently in use."""
+        try:
+            if IS_WINDOWS:
+                result = subprocess.run(
+                    f'netstat -ano | findstr :{port}',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                return bool(result.stdout.strip())
+            else:
+                result = subprocess.run(
+                    f'lsof -i :{port}',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                return bool(result.stdout.strip())
+        except Exception:
+            return False
+    
+    def find_alternative_port(self, start_port: int, max_attempts: int = 10) -> int:
+        """Find an alternative port starting from start_port."""
+        for i in range(max_attempts):
+            test_port = start_port + i
+            if not self.is_port_in_use(test_port):
+                logger.info(f"[PORT] Found alternative port: {test_port}")
+                return test_port
+        
+        logger.error(f"[ERROR] Could not find alternative port starting from {start_port}")
+        return start_port  # Return original as fallback
         
     def check_python_environment(self):
         """Check if Python environment is ready."""
@@ -430,16 +497,22 @@ class SystemLauncher:
         else:
             return 0
 
-    def start_api_server(self):
+    def start_api_server(self, port: int = 8000):
         """Start the FastAPI backend server."""
-        logger.info("[START] Starting API server...")
+        logger.info(f"[START] Starting API server on port {port}...")
+        
+        # Check if port is available, if not find alternative
+        if self.is_port_in_use(port):
+            logger.warning(f"[PORT] Port {port} is in use, finding alternative...")
+            port = self.find_alternative_port(port)
+            logger.info(f"[PORT] Using port {port} for API server")
         
         cmd = [
             sys.executable,
             "-m", "uvicorn",
             "api.server:app",
             "--host", "0.0.0.0",
-            "--port", "8000",
+            "--port", str(port),
             "--reload"
         ]
         
@@ -457,7 +530,10 @@ class SystemLauncher:
             )
             
             self.processes.append(("API Server", process))
-            logger.info(f"[OK] API server started (PID: {process.pid})")
+            logger.info(f"[OK] API server started (PID: {process.pid}) on port {port}")
+            
+            # Store the actual port being used
+            self.api_port = port
             return process
             
         except Exception as e:
@@ -493,9 +569,15 @@ class SystemLauncher:
             logger.error(f"[ERROR] Failed to start background agents: {e}")
             return None
     
-    def start_react_dashboard(self):
+    def start_react_dashboard(self, port: int = 3000):
         """Start the React dashboard frontend."""
-        logger.info("[WEB] Starting React dashboard...")
+        logger.info(f"[WEB] Starting React dashboard on port {port}...")
+        
+        # Check if port is available, if not find alternative
+        if self.is_port_in_use(port):
+            logger.warning(f"[PORT] Port {port} is in use, finding alternative...")
+            port = self.find_alternative_port(port)
+            logger.info(f"[PORT] Using port {port} for React dashboard")
         
         # Try different npm commands for Windows compatibility
         npm_commands = ['npm.cmd', 'npm'] if IS_WINDOWS else ['npm']
@@ -504,9 +586,12 @@ class SystemLauncher:
             try:
                 # Set environment variables
                 env = os.environ.copy()
-                env['API_BASE_URL'] = 'http://localhost:8000'
+                api_port = getattr(self, 'api_port', 8000)
+                env['API_BASE_URL'] = f'http://localhost:{api_port}'
+                env['NEXT_PUBLIC_API_BASE_URL'] = f'http://localhost:{api_port}'  # For client-side access
+                env['PORT'] = str(port)  # Tell Next.js which port to use
                 
-                # Start the development server
+                # Start the development server using PORT environment variable
                 process = subprocess.Popen(
                     [npm_cmd, "run", "dev"],
                     cwd=self.react_dashboard_path,
@@ -515,7 +600,10 @@ class SystemLauncher:
                 )
                 
                 self.processes.append(("React Dashboard", process))
-                logger.info(f"[OK] React dashboard started (PID: {process.pid}) using {npm_cmd}")
+                logger.info(f"[OK] React dashboard started (PID: {process.pid}) on port {port} using {npm_cmd}")
+                
+                # Store the actual port being used
+                self.dashboard_port = port
                 return process
                 
             except FileNotFoundError:
@@ -554,7 +642,7 @@ class SystemLauncher:
 
     def open_browser(self):
         """Open the dashboard in the browser."""
-        dashboard_url = "http://localhost:3000"
+        dashboard_url = f"http://localhost:{self.dashboard_port}"
         
         try:
             logger.info(f"[WEB] Opening dashboard in browser: {dashboard_url}")
@@ -669,8 +757,8 @@ class SystemLauncher:
             # Wait for services to be ready
             logger.info("")
             logger.info("[CHECK] Checking service health...")
-            self.wait_for_service("http://localhost:8000/health", "API Server")
-            self.wait_for_service("http://localhost:3000", "React Dashboard", timeout=15)
+            self.wait_for_service(f"http://localhost:{self.api_port}/health", "API Server")
+            self.wait_for_service(f"http://localhost:{self.dashboard_port}", "React Dashboard", timeout=15)
             
             # Open browser
             time.sleep(2)
@@ -679,10 +767,10 @@ class SystemLauncher:
             logger.info("")
             logger.info("[SUCCESS] AI Agents Swarm is now running!")
             logger.info("[INFO] Service URLs:")
-            logger.info("   [WEB] Dashboard: http://localhost:3000")
-            logger.info("   [API] API Server: http://localhost:8000")
-            logger.info("   [STATS] Health Check: http://localhost:8000/health")
-            logger.info("   [DOCS] API Docs: http://localhost:8000/docs")
+            logger.info(f"   [WEB] Dashboard: http://localhost:{self.dashboard_port}")
+            logger.info(f"   [API] API Server: http://localhost:{self.api_port}")
+            logger.info(f"   [STATS] Health Check: http://localhost:{self.api_port}/health")
+            logger.info(f"   [DOCS] API Docs: http://localhost:{self.api_port}/docs")
             logger.info("")
             logger.info("[INFO] The dashboard should now show real data from the running agents!")
             logger.info("Press Ctrl+C to stop all services...")

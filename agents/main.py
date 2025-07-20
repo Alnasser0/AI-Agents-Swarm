@@ -85,7 +85,7 @@ class AgentOrchestrator:
         
         # System stats
         self.stats = {
-            "tasks_processed": 0,
+            "tasks_created": 0,  # Changed from tasks_processed for clarity
             "emails_processed": 0,
             "errors": 0,
             "last_run": None,
@@ -96,8 +96,15 @@ class AgentOrchestrator:
         self.log_buffer = []
         self.max_log_entries = 50
         
+        # WebSocket integration for real-time updates
+        self.websocket_manager = None  # Will be set by API server
+        
         # Add initial system startup log
         self.add_log_entry("INFO", "System", "AI Agents Swarm initialized")
+    
+    def set_websocket_manager(self, websocket_manager):
+        """Set the WebSocket manager for real-time updates."""
+        self.websocket_manager = websocket_manager
     
     def add_log_entry(self, level: str, component: str, message: str):
         """Add a log entry to the real-time buffer."""
@@ -120,6 +127,27 @@ class AgentOrchestrator:
             # Keep only the latest entries
             if len(self.log_buffer) > self.max_log_entries:
                 self.log_buffer = self.log_buffer[-self.max_log_entries:]
+            
+            # Broadcast to WebSocket clients if available
+            if self.websocket_manager and hasattr(self.websocket_manager, 'send_log_update'):
+                try:
+                    # Check if we're in an async context
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.create_task(self.websocket_manager.send_log_update(entry))
+                    except RuntimeError:
+                        # Not in async context, create a new event loop in a thread
+                        import threading
+                        def run_in_thread():
+                            try:
+                                asyncio.run(self.websocket_manager.send_log_update(entry))
+                            except Exception:
+                                pass
+                        thread = threading.Thread(target=run_in_thread, daemon=True)
+                        thread.start()
+                except Exception:
+                    pass  # Don't let WebSocket issues break logging
+                    
         except Exception as e:
             # Fallback - just log to console if buffer fails
             print(f"[{level}] {component}: {message}")
@@ -185,37 +213,66 @@ class AgentOrchestrator:
             # Step 2: Create tasks in Notion
             processing_lock = self._get_processing_lock()
             async with processing_lock:
+                self.add_log_entry("INFO", "Notion", f"Creating {len(new_tasks)} tasks in Notion")
+                self.logger.info(f"🚀 Starting Notion batch creation for {len(new_tasks)} tasks")
                 page_ids = await self.notion_agent.batch_create_tasks(new_tasks)
                 
-                # Step 3: Mark successfully created tasks as processed to prevent duplicates
+                # Step 3: Count successful creations and mark emails as processed
                 successful_tasks = []
+                created_count = 0
+                skipped_count = 0
+                
                 for i, (task, page_id) in enumerate(zip(new_tasks, page_ids)):
                     if page_id is not None:  # Task was successfully created
                         successful_tasks.append(task)
+                        created_count += 1
                         # Mark the source email as processed
                         if task.source_id:
                             self.email_agent.processed_emails.add(task.source_id)
+                        self.logger.debug(f"✅ Task {i+1}: '{task.title}' created successfully")
+                    else:
+                        skipped_count += 1
+                        self.logger.debug(f"⚠️ Task {i+1}: '{task.title}' skipped (duplicate or error)")
                 
                 # Save the updated processed emails
                 if successful_tasks:
                     self.email_agent._save_processed_emails()
-                    self.logger.info(f"Marked {len(successful_tasks)} emails as processed")
+                    self.logger.info(f"📝 Marked {len(successful_tasks)} emails as processed")
                 
-                # Update stats
-                self.stats["tasks_processed"] += len(successful_tasks)
-                self.stats["emails_processed"] += len(new_tasks)
+                # Update stats with detailed counts
+                self.stats["tasks_created"] += created_count  # Only count actually created tasks
+                self.stats["emails_processed"] += len(new_tasks)  # Count all processed emails
                 self.stats["last_run"] = datetime.now()
                 
-                self.add_log_entry("INFO", "Notion", f"Created {len(successful_tasks)} tasks in Notion")
-                self.add_log_entry("INFO", "Pipeline", f"Pipeline complete: {len(successful_tasks)}/{len(new_tasks)} tasks created")
+                # Broadcast stats update via WebSocket
+                self._broadcast_stats_update()
                 
-                self.logger.info(f"Pipeline complete: {len(successful_tasks)}/{len(new_tasks)} tasks created")
+                # Add detailed log entries for the dashboard
+                self.add_log_entry("INFO", "Notion", f"Created {created_count} tasks in Notion")
+                if skipped_count > 0:
+                    self.add_log_entry("INFO", "Notion", f"Skipped {skipped_count} duplicate tasks")
+                
+                self.add_log_entry("INFO", "Pipeline", f"Pipeline complete: {created_count}/{len(new_tasks)} tasks created, {skipped_count} skipped")
+                
+                self.logger.info(f"📊 Pipeline complete: {created_count}/{len(new_tasks)} tasks created, {skipped_count} skipped")
+                self.logger.info(f"📈 Total stats - Created: {self.stats['tasks_created']}, Processed: {self.stats['emails_processed']}, Errors: {self.stats['errors']}")
                 
         except Exception as e:
             self.stats["errors"] += 1
+            self._broadcast_stats_update()  # Broadcast error count update
             self.add_log_entry("ERROR", "Pipeline", f"Pipeline error: {str(e)}")
-            self.logger.error(f"Pipeline error: {e}")
+            self.logger.error(f"❌ Pipeline error: {e}")
             raise
+    
+    def _broadcast_stats_update(self):
+        """Broadcast stats update to WebSocket clients."""
+        if self.websocket_manager:
+            try:
+                # Use get_system_stats() to handle datetime serialization
+                system_stats = self.get_system_stats()
+                asyncio.create_task(self.websocket_manager.send_stats_update(system_stats))
+            except Exception:
+                pass  # Don't let WebSocket issues break the pipeline
     
     async def run_single_cycle(self, email_limit: Optional[int] = None, since_days: Optional[int] = None) -> None:
         """
@@ -272,8 +329,16 @@ class AgentOrchestrator:
         # Get real-time email status
         realtime_status = self.get_realtime_status()
         
+        # Serialize datetime objects for safe JSON transmission
+        serialized_stats = {}
+        for key, value in self.stats.items():
+            if isinstance(value, datetime):
+                serialized_stats[key] = value.isoformat()
+            else:
+                serialized_stats[key] = value
+        
         return {
-            **self.stats,
+            **serialized_stats,
             "processed_emails_count": self.email_agent.get_processed_email_count() if self.email_agent else 0,
             "uptime_seconds": uptime.total_seconds(),
             "uptime_hours": uptime.total_seconds() / 3600,
@@ -282,6 +347,45 @@ class AgentOrchestrator:
             "notion_agent_status": "active",
             "realtime_email": realtime_status  # Add real-time status
         }
+    
+    def switch_model(self, new_model: str) -> None:
+        """
+        Switch to a new AI model for all agents.
+        
+        Args:
+            new_model: The new model identifier (e.g., "openai:gpt-4o")
+        """
+        try:
+            self.logger.info(f"Switching model from {self.model} to {new_model}")
+            
+            # Update the orchestrator's model
+            old_model = self.model
+            self.model = new_model
+            
+            # Reinitialize agents with the new model
+            from agents.email_polling import EmailAgent
+            from agents.notion_integration import NotionAgent
+            
+            self.email_agent = EmailAgent(model=new_model)
+            self.notion_agent = NotionAgent(model=new_model)
+            
+            # Validate the Notion database setup with the new agent
+            if not self.notion_agent.validate_database_setup():
+                # If validation fails, roll back to the old model
+                self.logger.error(f"Notion database validation failed with new model {new_model}, rolling back")
+                self.model = old_model
+                self.email_agent = EmailAgent(model=old_model)
+                self.notion_agent = NotionAgent(model=old_model)
+                raise ValueError(f"Notion database validation failed with model {new_model}")
+            
+            # Add log entry for successful switch
+            self.add_log_entry("INFO", "System", f"Model switched to {new_model}")
+            self.logger.info(f"Successfully switched model to {new_model}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to switch model: {e}")
+            self.add_log_entry("ERROR", "System", f"Failed to switch model: {e}")
+            raise
     
     def run_background_mode(self) -> None:
         """Run the orchestrator in background mode with scheduling."""

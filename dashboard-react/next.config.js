@@ -6,7 +6,8 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', '@heroicons/react']
   },
   env: {
-    API_BASE_URL: process.env.API_BASE_URL || 'http://localhost:8000'
+    API_BASE_URL: process.env.API_BASE_URL || 'http://localhost:8000',
+    NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:8000'
   },
   // Configure headers for API requests
   async headers() {
@@ -23,10 +24,11 @@ const nextConfig = {
   },
   // Configure rewrites for API proxy
   async rewrites() {
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:8000';
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/:path*`,
+        destination: `${apiBaseUrl}/api/:path*`,
       },
     ];
   },

@@ -8,20 +8,44 @@ integrations and programmatic control. Features include:
 - Task creation and management
 - System statistics
 - Webhook support for future integrations
+- WebSocket support for real-time updates
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from datetime import datetime
 import asyncio
 import uvicorn
+import json
+from loguru import logger
 
 # Internal imports
 from agents.main import AgentOrchestrator
 from agents.core import Task, TaskPriority, TaskStatus
 from config.settings import settings
+
+
+# JSON Encoder for datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+def serialize_datetime_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively serialize datetime objects in a dictionary to ISO format."""
+    if isinstance(data, dict):
+        return {key: serialize_datetime_dict(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [serialize_datetime_dict(item) for item in data]
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    else:
+        return data
 
 
 # API Models
@@ -65,6 +89,76 @@ class TriggerResponse(BaseModel):
     tasks_created: Optional[int] = None
 
 
+class WebSocketManager:
+    """Manages WebSocket connections for real-time updates."""
+    
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+    
+    async def connect(self, websocket: WebSocket):
+        """Accept a WebSocket connection."""
+        await websocket.accept()
+        self.active_connections.add(websocket)
+        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+    
+    async def disconnect(self, websocket: WebSocket):
+        """Remove a WebSocket connection."""
+        self.active_connections.discard(websocket)
+        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def broadcast(self, message: dict):
+        """Broadcast a message to all connected clients."""
+        if not self.active_connections:
+            return
+        
+        # Serialize datetime objects before JSON encoding
+        serialized_message = serialize_datetime_dict(message)
+        message_str = json.dumps(serialized_message)
+        disconnected = set()
+        
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message_str)
+            except Exception:
+                disconnected.add(connection)
+        
+        # Clean up disconnected connections
+        self.active_connections -= disconnected
+        
+        if disconnected:
+            logger.info(f"Cleaned up {len(disconnected)} disconnected WebSocket connections")
+    
+    async def send_stats_update(self, stats: dict):
+        """Send stats update to all clients."""
+        # Serialize stats dict to handle datetime objects
+        serialized_stats = serialize_datetime_dict(stats)
+        await self.broadcast({
+            "type": "stats_update",
+            "data": serialized_stats,
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    async def send_log_update(self, log_entry: dict):
+        """Send log update to all clients."""
+        await self.broadcast({
+            "type": "log_update", 
+            "data": log_entry,
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    async def send_task_update(self, task_data: dict):
+        """Send task update to all clients."""
+        await self.broadcast({
+            "type": "task_update",
+            "data": task_data,
+            "timestamp": datetime.now().isoformat()
+        })
+
+
+# Global WebSocket manager
+websocket_manager = WebSocketManager()
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="AI Agents Swarm API",
@@ -91,6 +185,8 @@ async def startup_event():
     global orchestrator
     try:
         orchestrator = AgentOrchestrator()
+        # Connect WebSocket manager to orchestrator for real-time updates
+        orchestrator.set_websocket_manager(websocket_manager)
     except Exception as e:
         raise RuntimeError(f"Failed to initialize orchestrator: {e}")
 
@@ -122,6 +218,7 @@ async def root():
             "logs": "/api/logs",
             "realtime_status": "/api/realtime/status",
             "config": "/api/config",
+            "websocket": "/ws",
             "triggers": {
                 "email_processing": "/api/trigger/email-processing",
                 "full_pipeline": "/api/trigger/full-pipeline",
@@ -131,6 +228,39 @@ async def root():
             "webhook": "/webhook/email"
         }
     }
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates."""
+    await websocket_manager.connect(websocket)
+    try:
+        # Send initial data
+        if orchestrator:
+            # Use get_system_stats() instead of raw stats to handle datetime serialization
+            system_stats = orchestrator.get_system_stats()
+            await websocket_manager.send_stats_update(system_stats)
+            
+            # Send recent logs
+            for log_entry in orchestrator.log_buffer[-10:]:  # Last 10 logs
+                await websocket_manager.send_log_update(log_entry)
+        
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                data = await websocket.receive_text()
+                # Handle any client messages if needed
+                logger.debug(f"Received WebSocket message: {data}")
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await websocket_manager.disconnect(websocket)
 
 
 @app.get("/health/detailed")
@@ -158,7 +288,7 @@ async def get_system_stats():
     stats = orchestrator.get_system_stats()
     
     return SystemStats(
-        tasks_processed=stats["tasks_processed"],
+        tasks_processed=stats["tasks_created"],  # Map to new field name
         emails_processed=stats["emails_processed"],
         errors=stats["errors"],
         uptime_hours=stats["uptime_hours"],
@@ -181,7 +311,7 @@ async def get_api_stats():
         
         return {
             "emails_processed": stats.get("emails_processed", 0),
-            "tasks_processed": stats.get("tasks_processed", 0),
+            "tasks_created": stats.get("tasks_created", 0),  # Changed from tasks_processed
             "processed_emails_count": stats.get("processed_emails_count", 0),
             "uptime_hours": stats.get("uptime_hours", 0.0),
             "errors": stats.get("errors", 0),
@@ -559,6 +689,100 @@ async def clear_processed_data():
         return TriggerResponse(
             success=False,
             message=f"Failed to clear data: {e}"
+        )
+
+
+@app.get("/api/models/available")
+async def get_available_models():
+    """Get list of available AI models with status indicators."""
+    try:
+        from agents.core import get_available_models, validate_model_availability
+        
+        models_by_provider = get_available_models()
+        model_status = {}
+        
+        for provider, models in models_by_provider.items():
+            model_status[provider] = []
+            for model in models:
+                is_available = validate_model_availability(model)
+                model_info = {
+                    "id": model,
+                    "name": model.split(":")[-1],  # Extract model name from provider:model format
+                    "provider": provider,
+                    "available": is_available,
+                    "status": "available" if is_available else "unavailable"
+                }
+                model_status[provider].append(model_info)
+        
+        return {
+            "models": model_status,
+            "current_model": orchestrator.model if orchestrator else None
+        }
+    except Exception as e:
+        logger.error(f"Failed to get available models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
+
+
+@app.get("/api/models/current")
+async def get_current_model():
+    """Get the currently selected model."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        from agents.core import validate_model_availability
+        
+        current_model = orchestrator.model
+        is_available = validate_model_availability(current_model)
+        
+        return {
+            "model": current_model,
+            "available": is_available,
+            "status": "available" if is_available else "unavailable"
+        }
+    except Exception as e:
+        logger.error(f"Failed to get current model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get current model: {str(e)}")
+
+
+@app.post("/api/models/switch", response_model=TriggerResponse)
+async def switch_model(model_data: dict):
+    """Switch to a different AI model."""
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    
+    try:
+        from agents.core import validate_model_availability
+        
+        new_model = model_data.get("model")
+        if not new_model:
+            return TriggerResponse(
+                success=False,
+                message="Model is required"
+            )
+        
+        # Validate the model is available
+        if not validate_model_availability(new_model):
+            return TriggerResponse(
+                success=False,
+                message=f"Model {new_model} is not available or not properly configured"
+            )
+        
+        # Switch the model in the orchestrator
+        old_model = orchestrator.model
+        orchestrator.switch_model(new_model)
+        
+        logger.info(f"Model switched from {old_model} to {new_model}")
+        
+        return TriggerResponse(
+            success=True,
+            message=f"Model switched from {old_model} to {new_model}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to switch model: {e}")
+        return TriggerResponse(
+            success=False,
+            message=f"Failed to switch model: {str(e)}"
         )
 
 

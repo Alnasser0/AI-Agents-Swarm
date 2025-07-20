@@ -17,6 +17,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from notion_client import Client
 from notion_client.errors import APIResponseError
+from fuzzywuzzy import fuzz
 
 # Internal imports
 from agents.core import BaseAgent, Task, TaskPriority, TaskStatus
@@ -65,33 +66,65 @@ class NotionAgent(BaseAgent):
         }
         return status_map.get(status, "Not started")
     
-    def _task_exists(self, task: Task) -> bool:
+    def _task_exists(self, task: Task, similarity_threshold: int = 85) -> bool:
         """
-        Check if a task with the same title already exists in Notion.
+        Check if a task with similar title or content already exists in Notion.
         
         Args:
             task: Task to check for duplicates
+            similarity_threshold: Minimum similarity percentage to consider as duplicate (default: 85%)
             
         Returns:
-            True if task exists, False otherwise
+            True if similar task exists, False otherwise
         """
         try:
-            # Query the database for tasks with the same title
+            # Query the database for recent tasks to compare
             response = self.client.databases.query(
                 database_id=self.database_id,
-                filter={
-                    "property": "Task name",
-                    "title": {
-                        "equals": task.title
+                sorts=[
+                    {
+                        "timestamp": "created_time",
+                        "direction": "descending"
                     }
-                }
+                ],
+                page_size=20  # Check last 20 tasks for duplicates
             )
             
-            # If any results are returned, the task exists
             results = response.get("results", [])
-            if results:
-                self.logger.info(f"Found {len(results)} existing tasks with title: {task.title}")
-                return True
+            if not results:
+                self.logger.debug(f"No existing tasks found to compare with '{task.title}'")
+                return False
+            
+            # Check for similarity with existing tasks
+            for existing_task in results:
+                properties = existing_task.get("properties", {})
+                
+                # Get existing task title
+                title_prop = properties.get("Task name", {})
+                if title_prop.get("type") == "title" and title_prop.get("title"):
+                    existing_title = title_prop["title"][0]["text"]["content"]
+                    
+                    # Calculate title similarity
+                    title_similarity = fuzz.ratio(task.title.lower(), existing_title.lower())
+                    
+                    # Also check description similarity if available
+                    description_similarity = 0
+                    if task.description:
+                        desc_prop = properties.get("Description", {})
+                        if desc_prop.get("type") == "rich_text" and desc_prop.get("rich_text"):
+                            existing_desc = desc_prop["rich_text"][0]["text"]["content"]
+                            description_similarity = fuzz.ratio(task.description.lower(), existing_desc.lower())
+                    
+                    # Use the higher similarity score
+                    max_similarity = max(title_similarity, description_similarity)
+                    
+                    self.logger.debug(f"Similarity check: '{task.title}' vs '{existing_title}' = {title_similarity}% (desc: {description_similarity}%)")
+                    
+                    if max_similarity >= similarity_threshold:
+                        self.logger.info(f"Found similar task: '{existing_title}' (similarity: {max_similarity}%)")
+                        return True
+            
+            self.logger.debug(f"No similar tasks found for '{task.title}'")
             return False
             
         except Exception as e:
@@ -110,8 +143,13 @@ class NotionAgent(BaseAgent):
             Notion page ID if successful, None otherwise
         """
         try:
+            self.logger.info(f"Creating Notion task: {task.title}")
+            
             # Check for duplicate tasks first
-            if self._task_exists(task):
+            duplicate_exists = self._task_exists(task)
+            self.logger.debug(f"Duplicate check for '{task.title}': {duplicate_exists}")
+            
+            if duplicate_exists:
                 self.logger.warning(f"Task '{task.title}' already exists in Notion, skipping creation")
                 return None
             
@@ -236,7 +274,8 @@ class NotionAgent(BaseAgent):
                     }
                 })
             
-            # Create the page
+            # Create the page with detailed logging
+            self.logger.debug(f"Sending create request to Notion for task: {task.title}")
             response = self.client.pages.create(
                 parent={"database_id": self.database_id},
                 properties=properties,
@@ -244,11 +283,15 @@ class NotionAgent(BaseAgent):
             )
             
             page_id = response["id"]
-            self.logger.info(f"Created Notion task: {task.title} (ID: {page_id})")
+            self.logger.info(f"✅ Successfully created Notion task: {task.title} (ID: {page_id})")
             return page_id
             
         except APIResponseError as e:
+            self.logger.error(f"❌ API Error creating Notion task '{task.title}': {e}")
             self.log_error(e, f"Creating Notion task: {task.title}")
+            return None
+        except Exception as e:
+            self.logger.error(f"❌ Unexpected error creating Notion task '{task.title}': {e}")
             return None
     
     def update_task_status(self, page_id: str, status: TaskStatus) -> bool:
@@ -291,21 +334,29 @@ class NotionAgent(BaseAgent):
             List of Notion page IDs (None for failed creations)
         """
         page_ids = []
+        total_tasks = len(tasks)
+        self.logger.info(f"🚀 Starting batch creation of {total_tasks} tasks")
         
-        for task in tasks:
+        for i, task in enumerate(tasks, 1):
             try:
+                self.logger.debug(f"Creating task {i}/{total_tasks}: {task.title}")
                 page_id = self.create_task_in_notion(task)
                 page_ids.append(page_id)
+                
+                if page_id:
+                    self.logger.debug(f"✅ Task {i}/{total_tasks} created successfully")
+                else:
+                    self.logger.warning(f"⚠️ Task {i}/{total_tasks} skipped (duplicate or error)")
                 
                 # Small delay to respect rate limits
                 await asyncio.sleep(0.1)
                 
             except Exception as e:
-                self.log_error(e, f"Batch creating task: {task.title}")
+                self.logger.error(f"❌ Error creating task {i}/{total_tasks} '{task.title}': {e}")
                 page_ids.append(None)
         
         successful_creates = len([pid for pid in page_ids if pid is not None])
-        self.logger.info(f"Batch created {successful_creates}/{len(tasks)} tasks")
+        self.logger.info(f"📊 Batch creation complete: {successful_creates}/{total_tasks} tasks created successfully")
         
         return page_ids
     

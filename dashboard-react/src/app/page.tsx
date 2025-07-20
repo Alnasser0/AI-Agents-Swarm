@@ -11,6 +11,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 import { MetricCard } from '@/components/MetricCard';
+import { ModelSelector } from '@/components/ModelSelector';
 import { useRealtimeData, useAutoRefresh } from '@/hooks';
 
 interface SyncFormData {
@@ -122,7 +123,10 @@ export default function Dashboard() {
     }
   };
 
-  const formatNumber = (num: number): string => {
+  const formatNumber = (num: number | undefined | null): string => {
+    if (num === undefined || num === null || isNaN(num)) {
+      return '0';
+    }
     return num.toLocaleString();
   };
 
@@ -149,6 +153,8 @@ export default function Dashboard() {
                     ? 'bg-success-600 hover:bg-success-500 text-white'
                     : 'bg-primary-700 hover:bg-primary-600 text-primary-200'
                 }`}
+                title={autoRefreshEnabled ? "Disable automatic data refresh" : "Enable automatic data refresh"}
+                aria-label={autoRefreshEnabled ? "Disable auto-refresh" : "Enable auto-refresh"}
               >
                 {autoRefreshEnabled ? '⏸️ Auto-refresh ON' : '▶️ Auto-refresh OFF'}
               </button>
@@ -159,7 +165,8 @@ export default function Dashboard() {
                   onClick={() => setShowSyncForm(true)}
                   disabled={isLoading}
                   className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-                  title="Sync past emails with custom parameters"
+                  title="Sync past emails from the last N days with custom email limit"
+                  aria-label="Sync past emails with custom parameters"
                 >
                   📧 {isLoading ? 'Processing...' : 'Sync Past'}
                 </button>
@@ -168,7 +175,8 @@ export default function Dashboard() {
                   onClick={handleClearData}
                   disabled={isLoading}
                   className="px-3 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-                  title="Clear all processed data"
+                  title="Clear all processed email data and reset the cache (cannot be undone)"
+                  aria-label="Clear all processed data"
                 >
                   🗑️ {isLoading ? 'Processing...' : 'Clear Data'}
                 </button>
@@ -200,27 +208,40 @@ export default function Dashboard() {
             title="📧 Emails Processed"
             value={stats ? formatNumber(stats.emails_processed) : '0'}
             icon={EnvelopeIcon}
+            description="Total number of emails processed and analyzed by the system"
           />
           <MetricCard
             title="✅ Tasks Created"
-            value={stats ? formatNumber(stats.tasks_processed) : '0'}
+            value={stats ? formatNumber(stats.tasks_created) : '0'}
             icon={CheckCircleIcon}
+            description="Total number of tasks successfully created in Notion database"
           />
           <MetricCard
             title="🗃️ Processed Cache"
             value={stats ? formatNumber(stats.processed_emails_count) : '0'}
             icon={CpuChipIcon}
+            description="Number of emails cached to prevent duplicate processing"
           />
           <MetricCard
             title="⏰ Uptime"
             value={stats ? formatUptime(stats.uptime_hours) : '0m'}
             icon={ClockIcon}
+            description="How long the system has been running since last restart"
           />
           <MetricCard
             title="❌ Errors"
             value={stats ? formatNumber(stats.errors) : '0'}
             icon={ExclamationTriangleIcon}
+            description="Total number of errors encountered during processing"
           />
+        </div>
+
+        {/* Model Selection */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-primary-50 mb-4 flex items-center">
+            🤖 AI Model Selection
+          </h2>
+          <ModelSelector />
         </div>
 
         {/* Agent Status */}

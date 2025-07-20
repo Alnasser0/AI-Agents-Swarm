@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useWebSocket } from './useWebSocket';
 import {
   getSystemStats,
   getAgentStatus,
@@ -70,7 +71,7 @@ export function useSystemStats(refreshInterval: number = 30000): UseSystemStats 
 }
 
 /**
- * Hook for managing real-time dashboard data
+ * Hook for managing real-time dashboard data with WebSocket and polling fallback
  */
 export function useRealtimeData(
   autoRefresh: boolean = true,
@@ -86,13 +87,52 @@ export function useRealtimeData(
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPollingRef = useRef(false);
 
+  // WebSocket connection for real-time updates
+  const wsUrl = process.env.NODE_ENV === 'development' 
+    ? 'ws://localhost:8003/ws' 
+    : `ws://${window.location.host.replace(/:\d+/, ':8003')}/ws`;
+    
+  const { isConnected: wsConnected, lastMessage } = useWebSocket(wsUrl, autoRefresh);
+
+  // Handle WebSocket messages
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    try {
+      switch (lastMessage.type) {
+        case 'stats_update':
+          setStats(lastMessage.data);
+          setIsConnected(true);
+          break;
+          
+        case 'log_update':
+          setLogs(prevLogs => {
+            const newLogs = [...prevLogs, lastMessage.data];
+            // Keep only the latest 50 logs
+            return newLogs.slice(-50);
+          });
+          break;
+          
+        case 'task_update':
+          setTasks(prevTasks => {
+            const newTasks = [lastMessage.data, ...prevTasks];
+            // Keep only the latest 20 tasks
+            return newTasks.slice(0, 20);
+          });
+          break;
+      }
+    } catch (err) {
+      console.error('Error processing WebSocket message:', err);
+    }
+  }, [lastMessage]);
+
   const fetchAllData = useCallback(async () => {
     try {
       setError(null);
       
       // Check if backend is reachable
       const backendReachable = await pingBackend();
-      setIsConnected(backendReachable);
+      setIsConnected(backendReachable || wsConnected);
       
       if (backendReachable) {
         // Fetch real data from API
@@ -119,48 +159,56 @@ export function useRealtimeData(
           setLogs(logsResult.value);
         }
       } else {
-        // Use mock data when backend is not available
-        setStats(generateMockStats());
-        setAgents([
-          {
-            name: 'Email Agent',
-            status: 'offline',
-            provider: 'IMAP',
-            account: 'user@example.com',
-            interval: '5 minutes',
-          },
-          {
-            name: 'Notion Agent',
-            status: 'offline',
-            database: 'tasks...',
-            schema: '❌ Invalid',
-          },
-        ]);
-        setTasks(generateMockTasks());
-        setLogs(generateMockLogs());
+        // Use mock data when backend is not available and no WebSocket
+        if (!wsConnected) {
+          setStats(generateMockStats());
+          setAgents([
+            {
+              name: 'Email Agent',
+              status: 'offline',
+              provider: 'IMAP',
+              account: 'user@example.com',
+              interval: '5 minutes',
+            },
+            {
+              name: 'Notion Agent',
+              status: 'offline',
+              database: 'tasks...',
+              schema: '❌ Invalid',
+            },
+          ]);
+          setTasks(generateMockTasks());
+          setLogs(generateMockLogs());
+        }
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       console.error('Error fetching dashboard data:', err);
       
-      // Still provide mock data on error
-      setStats(generateMockStats());
-      setTasks(generateMockTasks());
-      setLogs(generateMockLogs());
+      // Still provide mock data on error if no WebSocket
+      if (!wsConnected) {
+        setStats(generateMockStats());
+        setTasks(generateMockTasks());
+        setLogs(generateMockLogs());
+      }
     }
-  }, []);
+  }, [wsConnected]);
 
   const startPolling = useCallback(() => {
     if (isPollingRef.current) return;
     
     isPollingRef.current = true;
+    
+    // If WebSocket is connected, reduce polling frequency
+    const pollInterval = wsConnected ? refreshInterval * 3 : refreshInterval;
+    
     fetchAllData(); // Initial fetch
     
-    if (refreshInterval > 0) {
-      intervalRef.current = setInterval(fetchAllData, refreshInterval);
+    if (pollInterval > 0) {
+      intervalRef.current = setInterval(fetchAllData, pollInterval);
     }
-  }, [fetchAllData, refreshInterval]);
+  }, [fetchAllData, refreshInterval, wsConnected]);
 
   const stopPolling = useCallback(() => {
     isPollingRef.current = false;
@@ -184,12 +232,17 @@ export function useRealtimeData(
     };
   }, [autoRefresh, startPolling, stopPolling]);
 
+  // Update connection status based on WebSocket
+  useEffect(() => {
+    setIsConnected(wsConnected);
+  }, [wsConnected]);
+
   return {
     stats,
     agents,
     tasks,
     logs,
-    isConnected,
+    isConnected: isConnected || wsConnected,
     error,
     startPolling,
     stopPolling,
