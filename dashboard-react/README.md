@@ -1,16 +1,19 @@
 # AI Agents Swarm - React Dashboard
 
-A modern, real-time dashboard built with Next.js and TypeScript for monitoring the AI Agents Swarm automation system.
+A modern, real-time dashboard built with Next.js and TypeScript for monitoring the AI Agents Swarm automation system. This dashboard provides comprehensive insights into email processing, task management, and AI agent operations.
 
 ## 🚀 Features
 
+- **Real-time WebSocket Updates**: Live system monitoring with instant notifications
 - **Real-time Data Updates**: Auto-refreshes every 30 seconds with system metrics
 - **Modern UI**: Built with Tailwind CSS and Headless UI components
-- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile
 - **Type Safety**: Full TypeScript support for better development experience
 - **API Integration**: Communicates with the Python FastAPI backend
 - **Error Handling**: Graceful fallbacks when backend is unavailable
-- **Mock Data**: Demonstrates functionality even without backend connection
+- **Email Monitoring**: Real-time email processing status and statistics
+- **Task Management**: Live task creation and status tracking
+- **Agent Status**: Monitor email and Notion agent health
+- **System Health**: Comprehensive system monitoring and diagnostics
 
 ## 🛠️ Tech Stack
 
@@ -58,47 +61,54 @@ npm run start
 
 ### Environment Variables
 
-Create a `.env.local` file in the root directory:
+Create a `.env.local` file in the dashboard-react directory:
 
 ```env
-# API Backend URL
-API_BASE_URL=http://localhost:8000
+# API Backend URL (default: http://localhost:8000)
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+
+# WebSocket URL for real-time updates
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
 
 # Optional: Enable debug mode
 NODE_ENV=development
+
+# Optional: Disable real-time features
+NEXT_PUBLIC_DISABLE_WEBSOCKET=false
 ```
 
 ### Backend Integration
 
-The dashboard expects the following API endpoints from the Python backend:
+The dashboard communicates with the Python FastAPI backend via both REST API and WebSocket connections:
 
-- `GET /health` - System health check
-- `GET /api/stats` - System statistics
-- `GET /api/agents/status` - Agent status information
-- `GET /api/tasks/recent` - Recent tasks list
-- `GET /api/logs` - System logs
-- `POST /api/trigger/email-processing` - Trigger email processing
-- `POST /api/trigger/full-pipeline` - Trigger full pipeline
+**REST API Endpoints:**
+- `GET /health` - System health check with detailed diagnostics
+- `GET /api/stats` - Comprehensive system statistics and metrics
+- `GET /api/agents/status` - Real-time agent status information
+- `GET /api/tasks/recent` - Recent tasks with full context
+- `GET /api/logs` - System logs with filtering capabilities
+- `GET /api/email/stats` - Email processing statistics
+- `POST /api/trigger/email-processing` - Manual email processing trigger
+- `POST /api/trigger/full-pipeline` - Full system pipeline execution
 
-## 🎯 Usage
+**WebSocket Endpoints:**
+- `WS /ws` - Real-time system events and notifications
+- Live task creation updates
+- Agent status changes
+- Email processing events
+- System alerts and errors
 
-### Auto-Refresh Control
+### Docker Configuration
 
-- **Auto-refresh ON**: Dashboard updates every 30 seconds
-- **Auto-refresh OFF**: Manual refresh only
-- Toggle button in the top-right corner
+When running via Docker Compose, the dashboard automatically connects to the backend container:
 
-### Connection Status
-
-- **Connected**: Green indicator when backend is reachable
-- **Disconnected**: Red indicator with mock data fallback
-
-### Real-time Features
-
-- **System Metrics**: Email count, task count, uptime, errors
-- **Agent Status**: Real-time status of email and Notion agents
-- **Recent Tasks**: Latest tasks created from email processing
-- **System Logs**: Live system logs with color-coded levels
+```yaml
+# In docker-compose.yml
+dashboard:
+  environment:
+    - NEXT_PUBLIC_API_BASE_URL=http://api:8000
+    - NEXT_PUBLIC_WS_URL=ws://api:8000
+```
 
 ## 🔄 Integration with Python Backend
 
@@ -134,36 +144,6 @@ src/
 └── types/              # TypeScript type definitions
 ```
 
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **"Cannot connect to backend"**
-   - Ensure Python backend is running on `http://localhost:8000`
-   - Check `API_BASE_URL` environment variable
-   - Dashboard will show mock data if backend is unavailable
-
-2. **Build errors**
-   - Run `npm install` to ensure all dependencies are installed
-   - Check Node.js version (requires 18+)
-
-3. **TypeScript errors**
-   - Run `npm run type-check` to validate types
-   - Check imports and type definitions
-
-### Development Tips
-
-- Use `npm run dev` for hot-reload development
-- Check browser console for API errors
-- Use browser dev tools to inspect network requests
-
-## 📱 Mobile Support
-
-The dashboard is fully responsive and optimized for:
-- **Desktop**: Full feature set with side-by-side layout
-- **Tablet**: Responsive grid layout
-- **Mobile**: Stacked layout with touch-friendly controls
-
 ## 🔒 Security Considerations
 
 - API requests are proxied through Next.js for security
@@ -171,16 +151,6 @@ The dashboard is fully responsive and optimized for:
 - CORS headers are properly configured
 
 ## 🚀 Production Deployment
-
-### Vercel (Recommended)
-
-```bash
-# Deploy to Vercel
-npx vercel
-
-# Set environment variables in Vercel dashboard
-API_BASE_URL=https://your-backend-domain.com
-```
 
 ### Docker
 
@@ -201,21 +171,6 @@ CMD ["npm", "start"]
 npm run build
 npm run start
 ```
-
-## 📊 Performance
-
-- **First Load**: ~200kb JavaScript bundle
-- **Hydration**: ~50ms on modern devices
-- **API Requests**: Cached with SWR for optimal performance
-- **Real-time Updates**: Efficient polling with automatic error retry
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
 
 ## 📄 License
 
