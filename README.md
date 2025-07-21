@@ -81,7 +81,7 @@ The system automatically:
 4. **Share Database**: Share the database with your integration
 5. **Get Database ID**: Copy from database URL
 
-### **Add Your AI Model API to .env (Required)**
+### **Add Your AI Model API key to .env (Required)**
 - **Gemini (Recommended)**: Get API key from Google AI Studio - **tested**
 - **OpenAI**: Get API key from OpenAI dashboard - **Not tested**  
 - **Anthropic**: Get API key from Anthropic console - **Not tested**
@@ -108,7 +108,7 @@ AI-Agents-Swarm/
 └── start.py                # Development startup script
 ```
 
-## � Acknowledgments
+## Acknowledgments
 
 ### **Core Technologies**
 - **[PydanticAI](https://github.com/pydantic/pydantic-ai)**: Modern AI framework for structured model interactions
