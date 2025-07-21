@@ -12,7 +12,10 @@ import {
 
 import { MetricCard } from '@/components/MetricCard';
 import { ModelSelector } from '@/components/ModelSelector';
+import WebSocketStatus from '@/components/WebSocketStatus';
 import { useRealtimeData, useAutoRefresh } from '@/hooks';
+import { syncPastEmails, clearData } from '@/lib/api';
+import '@/lib/websocket-debug'; // Add debugging utilities to window
 
 interface SyncFormData {
   days: number;
@@ -30,6 +33,9 @@ export default function Dashboard() {
     error,
     startPolling,
     stopPolling,
+    wsConnected,
+    wsReadyState,
+    wsConnectionAttempts,
   } = useRealtimeData(autoRefreshEnabled, 30000);
 
   const [showSyncForm, setShowSyncForm] = useState(false);
@@ -45,14 +51,9 @@ export default function Dashboard() {
   const onSyncSubmit = async (data: SyncFormData) => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/management/sync-past-emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      const result = await response.json();
+      const result = await syncPastEmails(data.days, data.limit) as any;
       
-      if (response.ok && result.success) {
+      if (result.success) {
         alert(`✅ Started syncing past ${data.days} days of emails (limit: ${data.limit})`);
         setShowSyncForm(false);
         reset();
@@ -69,14 +70,9 @@ export default function Dashboard() {
   const handleSyncPastEmails = async (days: number, limit: number) => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/management/sync-past-emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days, limit })
-      });
-      const result = await response.json();
+      const result = await syncPastEmails(days, limit) as any;
       
-      if (response.ok && result.success) {
+      if (result.success) {
         alert(`✅ Started syncing past ${days} days of emails (limit: ${limit})`);
       } else {
         alert(`❌ Failed to sync emails: ${result.message || result.detail}`);
@@ -95,13 +91,9 @@ export default function Dashboard() {
     
     setIsLoading(true);
     try {
-      const response = await fetch('/api/management/clear-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const result = await response.json();
+      const result = await clearData() as any;
       
-      if (response.ok && result.success) {
+      if (result.success) {
         alert('✅ All processed data cleared successfully');
       } else {
         alert(`❌ Failed to clear data: ${result.message || result.detail}`);
@@ -146,6 +138,12 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center space-x-4">
+              <WebSocketStatus 
+                isConnected={wsConnected}
+                readyState={wsReadyState}
+                connectionAttempts={wsConnectionAttempts}
+              />
+              
               <button
                 onClick={toggleAutoRefresh}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${

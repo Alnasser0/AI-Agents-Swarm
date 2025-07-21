@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  output: 'standalone', // Enable standalone build for Docker
   experimental: {
     optimizePackageImports: ['lucide-react', '@heroicons/react']
   },

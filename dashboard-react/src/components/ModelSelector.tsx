@@ -7,6 +7,7 @@ import {
   ExclamationTriangleIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
+import { getAvailableModels, getCurrentModel, switchModel } from '@/lib/api';
 
 interface ModelInfo {
   id: string;
@@ -42,11 +43,7 @@ export function ModelSelector() {
   const fetchModels = async () => {
     try {
       setError(null);
-      const response = await fetch('/api/models/available');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch models: ${response.statusText}`);
-      }
-      const data = await response.json();
+      const data = await getAvailableModels() as ModelsData;
       setModelsData(data);
     } catch (err) {
       console.error('Error fetching models:', err);
@@ -56,11 +53,7 @@ export function ModelSelector() {
 
   const fetchCurrentModel = async () => {
     try {
-      const response = await fetch('/api/models/current');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch current model: ${response.statusText}`);
-      }
-      const data = await response.json();
+      const data = await getCurrentModel() as any;
       setCurrentModel(data);
     } catch (err) {
       console.error('Error fetching current model:', err);
@@ -68,18 +61,12 @@ export function ModelSelector() {
     }
   };
 
-  const switchModel = async (modelId: string) => {
+  const switchModelHandler = async (modelId: string) => {
     if (!modelId || isSwitching) return;
     
     setIsSwitching(true);
     try {
-      const response = await fetch('/api/models/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelId })
-      });
-      
-      const result = await response.json();
+      const result = await switchModel(modelId) as any;
       
       if (result.success) {
         alert(`✅ ${result.message}`);
@@ -245,7 +232,7 @@ export function ModelSelector() {
                           ? 'border-primary-600 hover:border-primary-500 hover:bg-primary-700/20 cursor-pointer'
                           : 'border-primary-700 bg-primary-800/30 opacity-60'
                       }`}
-                      onClick={() => model.available && model.id !== currentModel?.model && switchModel(model.id)}
+                      onClick={() => model.available && model.id !== currentModel?.model && switchModelHandler(model.id)}
                     >
                       <div className="flex items-center space-x-3">
                         {getStatusIcon(model.status)}
@@ -281,7 +268,7 @@ export function ModelSelector() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              switchModel(model.id);
+                              switchModelHandler(model.id);
                             }}
                             disabled={isSwitching}
                             className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:opacity-50 text-white rounded text-xs font-medium transition-colors"

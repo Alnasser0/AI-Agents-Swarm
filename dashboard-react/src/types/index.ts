@@ -113,6 +113,10 @@ export interface UseRealtimeData {
   error: string | null;
   startPolling: () => void;
   stopPolling: () => void;
+  // WebSocket status information
+  wsConnected: boolean;
+  wsReadyState: number;
+  wsConnectionAttempts: number;
 }
 
 // Component prop types

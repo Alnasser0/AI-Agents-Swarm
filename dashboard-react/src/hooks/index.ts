@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWebSocket } from './useWebSocket';
+import { useWebSocket, ReadyState } from './useWebSocket';
 import {
   getSystemStats,
   getAgentStatus,
@@ -88,11 +88,8 @@ export function useRealtimeData(
   const isPollingRef = useRef(false);
 
   // WebSocket connection for real-time updates
-  const wsUrl = process.env.NODE_ENV === 'development' 
-    ? 'ws://localhost:8003/ws' 
-    : `ws://${window.location.host.replace(/:\d+/, ':8003')}/ws`;
-    
-  const { isConnected: wsConnected, lastMessage } = useWebSocket(wsUrl, autoRefresh);
+  // No need to pass URL - useWebSocket will use environment variables
+  const { isConnected: wsConnected, lastMessage, readyState, connectionAttempts } = useWebSocket(undefined, autoRefresh);
 
   // Handle WebSocket messages
   useEffect(() => {
@@ -234,8 +231,15 @@ export function useRealtimeData(
 
   // Update connection status based on WebSocket
   useEffect(() => {
-    setIsConnected(wsConnected);
-  }, [wsConnected]);
+    if (wsConnected) {
+      setIsConnected(true);
+    } else {
+      // If WebSocket is explicitly closed/failed and not just connecting, update connection status
+      if (readyState === ReadyState.CLOSED || readyState === ReadyState.CLOSING) {
+        setIsConnected(false);
+      }
+    }
+  }, [wsConnected, readyState]);
 
   return {
     stats,
@@ -246,6 +250,10 @@ export function useRealtimeData(
     error,
     startPolling,
     stopPolling,
+    // WebSocket status information
+    wsConnected,
+    wsReadyState: readyState,
+    wsConnectionAttempts: connectionAttempts,
   };
 }
 

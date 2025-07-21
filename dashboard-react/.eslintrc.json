@@ -1,6 +1,6 @@
 {
   "extends": ["next/core-web-vitals"],
   "rules": {
-    "@next/next/no-deprecation-warnings": "error"
+    // Removed @next/next/no-deprecation-warnings as it doesn't exist in Next.js 15
   }
 }
